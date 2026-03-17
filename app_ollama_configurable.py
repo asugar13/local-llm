@@ -40,7 +40,15 @@ with st.sidebar:
 
     if st.button("Clear conversation"):
         st.session_state.messages = [st.session_state.messages[0]]
+        st.session_state.total_input_tokens = 0
+        st.session_state.total_output_tokens = 0
         st.rerun()
+
+    st.divider()
+    st.subheader("Token usage")
+    st.caption(f"Input: {st.session_state.total_input_tokens}")
+    st.caption(f"Output: {st.session_state.total_output_tokens}")
+    st.caption(f"Total: {st.session_state.total_input_tokens + st.session_state.total_output_tokens}")
 
 # Render existing messages
 for msg in st.session_state.messages:
@@ -65,7 +73,11 @@ if prompt := st.chat_input("Type your message..."):
         ):
             full_response += chunk["message"]["content"]
             placeholder.markdown(full_response + "▌")
+            if chunk.get("done"):
+                st.session_state.total_input_tokens += chunk.get("prompt_eval_count", 0)
+                st.session_state.total_output_tokens += chunk.get("eval_count", 0)
 
         placeholder.markdown(full_response)
 
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.rerun()
