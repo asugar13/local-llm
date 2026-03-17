@@ -21,6 +21,8 @@ with st.sidebar:
     st.header("Settings")
     model = st.selectbox("Model", ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"], index=1)
 
+    temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
+
     system_prompt = st.text_area(
         "System prompt",
         value="You are a helpful, concise, and friendly assistant.",
@@ -69,6 +71,7 @@ if prompt := st.chat_input("Type your message..."):
         for chunk in ollama.chat(
             model=model,
             messages=st.session_state.messages,
+            options={"temperature": temperature},
             stream=True
         ):
             full_response += chunk["message"]["content"]
