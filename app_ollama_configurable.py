@@ -22,6 +22,7 @@ with st.sidebar:
     model = st.selectbox("Model", ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"], index=1)
 
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.7, step=0.1)
+    st.caption("0 = deterministic (better for facts/code), 1 = creative (better for writing/brainstorming)")
 
     system_prompt = st.text_area(
         "System prompt",
