@@ -1,9 +1,20 @@
+import json
 import streamlit as st
 import ollama
 
 st.set_page_config(page_title="Qwen Local Chat", page_icon="🤖")
 st.title("Qwen 2.5 - Local Chat")
 st.caption("Running entirely on your machine. No data leaves this device.")
+
+# Initialise session state
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "system", "content": "You are a helpful, concise, and friendly assistant."}
+    ]
+if "total_input_tokens" not in st.session_state:
+    st.session_state.total_input_tokens = 0
+if "total_output_tokens" not in st.session_state:
+    st.session_state.total_output_tokens = 0
 
 # Sidebar
 with st.sidebar:
@@ -20,15 +31,16 @@ with st.sidebar:
         st.session_state.messages = [{"role": "system", "content": system_prompt}]
         st.rerun()
 
+    st.download_button(
+        "Export conversation",
+        data=json.dumps(st.session_state.messages, indent=2),
+        file_name="conversation.json",
+        mime="application/json"
+    )
+
     if st.button("Clear conversation"):
         st.session_state.messages = [st.session_state.messages[0]]
         st.rerun()
-
-# Initialise session state
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "system", "content": system_prompt}
-    ]
 
 # Render existing messages
 for msg in st.session_state.messages:
