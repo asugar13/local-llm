@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 import threading
 import streamlit as st
 import ollama
@@ -35,8 +36,11 @@ if "_gen" not in st.__dict__:
     }
 
 DEFAULT_SYSTEM = "You are a helpful, concise, and friendly assistant."
-DEFAULT_MODEL  = "qwen2.5:7b"
-MODELS         = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"]
+try:
+    MODELS = sorted([m.model for m in ollama.list().models])
+except Exception:
+    MODELS = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"]
+DEFAULT_MODEL = MODELS[0] if MODELS else "qwen2.5:7b"
 
 # Initialise session state
 if "messages" not in st.session_state:
@@ -229,10 +233,14 @@ if not non_system:
     )
 
 # Render existing messages
-for msg in st.session_state.messages:
+for i, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             render_markdown(msg["content"])
+        if msg["role"] == "assistant":
+            if st.button("Copy", key=f"copy_{i}"):
+                subprocess.run(["pbcopy"], input=msg["content"].encode(), check=True)
+                st.toast("Copied to clipboard!")
 
 # Fragment always defined for consistent run_every lifecycle
 @st.fragment(run_every=0.1)
