@@ -1,3 +1,4 @@
+import io
 import json
 import re
 import subprocess
@@ -5,6 +6,19 @@ import threading
 import streamlit as st
 import ollama
 import database
+
+
+def extract_text(file) -> str:
+    name = file.name.lower()
+    if name.endswith(".pdf"):
+        import fitz
+        doc = fitz.open(stream=file.read(), filetype="pdf")
+        return "\n".join(page.get_text() for page in doc)
+    elif name.endswith(".docx"):
+        from docx import Document
+        return "\n".join(p.text for p in Document(io.BytesIO(file.read())).paragraphs)
+    else:
+        return file.read().decode("utf-8", errors="ignore")
 
 
 def render_markdown(content: str) -> None:
@@ -77,6 +91,10 @@ if "title_set" not in st.session_state:
     st.session_state.title_set = False
 if "renaming_id" not in st.session_state:
     st.session_state.renaming_id = None
+if "doc_text" not in st.session_state:
+    st.session_state.doc_text = None
+if "doc_name" not in st.session_state:
+    st.session_state.doc_name = None
 
 # Sidebar
 with st.sidebar:
@@ -241,7 +259,7 @@ last_assistant_i = max(
 for i, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
-            render_markdown(msg["content"])
+            render_markdown(msg.get("display", msg["content"]))
         if msg["role"] == "assistant":
             is_last = i == last_assistant_i
             non_sys = [m for m in st.session_state.messages if m["role"] != "system"]
@@ -338,11 +356,47 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
         st.session_state.title_set = True
         st.query_params["conv"] = cid
 
-    database.save_message(cid, "user", prompt)
+    if st.session_state.doc_text:
+        full_content = (
+            f"[Document: {st.session_state.doc_name}]\n\n"
+            f"{st.session_state.doc_text}\n\n---\n\n"
+            f"{prompt}"
+        )
+        display_content = prompt
+        st.session_state.doc_text = None
+        st.session_state.doc_name = None
+    else:
+        full_content = prompt
+        display_content = prompt
+
+    database.save_message(cid, "user", full_content)
     database.update_conversation_meta(cid, mdl, st.session_state.messages[0]["content"])
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.messages.append({"role": "user", "content": full_content, "display": display_content})
     _kick_generation(mdl, temp)
 
+
+# Document upload
+uploaded_file = st.file_uploader(
+    "📎 Drag & drop or click to attach a file — PDF, DOCX, TXT, MD, CSV",
+    type=["pdf", "docx", "txt", "md", "csv"],
+    key="file_uploader",
+)
+if uploaded_file:
+    text = extract_text(uploaded_file)[:60000]
+    st.session_state.doc_text = text
+    st.session_state.doc_name = uploaded_file.name
+
+if st.session_state.doc_text:
+    col_info, col_remove = st.columns([6, 1])
+    with col_info:
+        st.caption(f"📄 **{st.session_state.doc_name}** · {len(st.session_state.doc_text):,} chars · type your question below and send")
+    with col_remove:
+        if st.button("✕", help="Remove document"):
+            st.session_state.doc_text = None
+            st.session_state.doc_name = None
+            st.rerun()
+    with st.expander("Preview first 500 characters"):
+        st.text(st.session_state.doc_text[:500] + ("…" if len(st.session_state.doc_text) > 500 else ""))
 
 # Disable send button while generating
 if st.session_state.is_generating:
