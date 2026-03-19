@@ -91,8 +91,10 @@ def list_conversations() -> list:
     conn = _connect()
     try:
         rows = conn.execute(
-            "SELECT id, title, model, system_prompt, created_at "
-            "FROM conversations ORDER BY created_at DESC"
+            "SELECT c.id, c.title, c.model, c.system_prompt, c.created_at "
+            "FROM conversations c "
+            "WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id) "
+            "ORDER BY c.created_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

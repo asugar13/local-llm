@@ -1,14 +1,30 @@
 import json
+import re
 import threading
 import streamlit as st
 import ollama
 import database
 
+
+def render_markdown(content: str) -> None:
+    """Render markdown with proper LaTeX delimiters for Streamlit's KaTeX renderer."""
+    content = re.sub(r'\\\((.+?)\\\)', r'$\1$', content, flags=re.DOTALL)
+    content = re.sub(r'\\\[(.+?)\\\]', r'$$\1$$', content, flags=re.DOTALL)
+    st.markdown(content)
+
 database.init_db()
 
-st.set_page_config(page_title="Qwen Local Chat", page_icon="🤖")
-st.title("Qwen 2.5 - Local Chat")
-st.caption("Running entirely on your machine. No data leaves this device.")
+st.set_page_config(page_title="Qwen Local Chat", page_icon="🤖", layout="centered")
+st.markdown("""
+<style>
+    .block-container { padding-top: 1.5rem; padding-bottom: 0; }
+    section[data-testid="stSidebar"] input[type="text"] { font-size: 0.85rem; }
+    section[data-testid="stSidebar"] .stMetric { text-align: center; }
+    section[data-testid="stSidebar"] .stMetric label { font-size: 0.75rem; }
+</style>
+""", unsafe_allow_html=True)
+st.title("Qwen Local Chat")
+st.caption("Running entirely on your machine · No data leaves this device")
 
 # Module-level state for thread communication (session state is not thread-safe)
 if "_gen" not in st.__dict__:
@@ -38,11 +54,25 @@ if "pending_temperature" not in st.session_state:
 if "queued_prompt" not in st.session_state:
     st.session_state.queued_prompt = None
 if "conversation_id" not in st.session_state:
-    cid = database.create_conversation(DEFAULT_MODEL, DEFAULT_SYSTEM)
-    st.session_state.conversation_id = cid
-    st.session_state.title_set = False
+    conv_param = st.query_params.get("conv")
+    loaded = database.load_conversation(int(conv_param)) if conv_param else None
+    if loaded:
+        st.session_state.messages = (
+            [{"role": "system", "content": loaded["system_prompt"]}]
+            + loaded["messages"]
+        )
+        st.session_state.conversation_id = loaded["id"]
+        st.session_state.pending_model = loaded["model"]
+        st.session_state.title_set = loaded["title"] != "New conversation"
+    else:
+        cid = database.create_conversation(DEFAULT_MODEL, DEFAULT_SYSTEM)
+        st.session_state.conversation_id = cid
+        st.session_state.title_set = False
+        st.query_params["conv"] = cid
 if "title_set" not in st.session_state:
     st.session_state.title_set = False
+if "renaming_id" not in st.session_state:
+    st.session_state.renaming_id = None
 
 # Sidebar
 with st.sidebar:
@@ -56,85 +86,153 @@ with st.sidebar:
         st.session_state.messages = [{"role": "system", "content": current_system}]
         st.session_state.total_input_tokens = 0
         st.session_state.total_output_tokens = 0
+        st.session_state.renaming_id = None
+        st.query_params["conv"] = cid
         st.rerun()
 
-    for conv in database.list_conversations():
+    search_query = st.text_input("Search conversations", placeholder="Filter by title...", label_visibility="collapsed")
+
+    all_convs = database.list_conversations()
+    filtered_convs = [c for c in all_convs if search_query.lower() in c["title"].lower()] if search_query else all_convs
+
+    for conv in filtered_convs:
         is_active = conv["id"] == st.session_state.conversation_id
-        col_btn, col_del = st.columns([5, 1])
-        with col_btn:
-            label = f"**{conv['title']}**" if is_active else conv["title"]
-            if st.button(label, key=f"conv_{conv['id']}", use_container_width=True):
-                if not is_active:
-                    data = database.load_conversation(conv["id"])
-                    st.session_state.messages = (
-                        [{"role": "system", "content": data["system_prompt"]}]
-                        + data["messages"]
-                    )
-                    st.session_state.conversation_id = data["id"]
-                    st.session_state.pending_model = data["model"]
-                    st.session_state.title_set = True
-                    st.session_state.total_input_tokens = 0
-                    st.session_state.total_output_tokens = 0
+        is_renaming = st.session_state.renaming_id == conv["id"]
+
+        if is_renaming:
+            new_title = st.text_input(
+                "Rename", value=conv["title"], key=f"rename_input_{conv['id']}",
+                label_visibility="collapsed"
+            )
+            col_save, col_cancel = st.columns(2)
+            with col_save:
+                if st.button("Save", key=f"rename_save_{conv['id']}", use_container_width=True):
+                    if new_title.strip():
+                        database.set_conversation_title(conv["id"], new_title.strip())
+                        if is_active:
+                            st.session_state.title_set = True
+                    st.session_state.renaming_id = None
                     st.rerun()
-        with col_del:
-            if st.button("🗑", key=f"del_{conv['id']}", help="Delete"):
-                database.delete_conversation(conv["id"])
-                if is_active:
-                    cid = database.create_conversation(DEFAULT_MODEL, DEFAULT_SYSTEM)
-                    st.session_state.conversation_id = cid
-                    st.session_state.title_set = False
-                    st.session_state.messages = [{"role": "system", "content": DEFAULT_SYSTEM}]
-                    st.session_state.total_input_tokens = 0
-                    st.session_state.total_output_tokens = 0
-                st.rerun()
+            with col_cancel:
+                if st.button("Cancel", key=f"rename_cancel_{conv['id']}", use_container_width=True):
+                    st.session_state.renaming_id = None
+                    st.rerun()
+        else:
+            col_btn, col_ren, col_del = st.columns([5, 1, 1])
+            with col_btn:
+                label = f"**{conv['title']}**" if is_active else conv["title"]
+                if st.button(label, key=f"conv_{conv['id']}", use_container_width=True):
+                    if not is_active:
+                        data = database.load_conversation(conv["id"])
+                        st.session_state.messages = (
+                            [{"role": "system", "content": data["system_prompt"]}]
+                            + data["messages"]
+                        )
+                        st.session_state.conversation_id = data["id"]
+                        st.session_state.pending_model = data["model"]
+                        st.session_state.title_set = True
+                        st.session_state.total_input_tokens = 0
+                        st.session_state.total_output_tokens = 0
+                        st.query_params["conv"] = data["id"]
+                        st.rerun()
+            with col_ren:
+                if st.button("✏️", key=f"ren_{conv['id']}", help="Rename"):
+                    st.session_state.renaming_id = conv["id"]
+                    st.rerun()
+            with col_del:
+                if st.button("🗑", key=f"del_{conv['id']}", help="Delete"):
+                    database.delete_conversation(conv["id"])
+                    if is_active:
+                        cid = database.create_conversation(DEFAULT_MODEL, DEFAULT_SYSTEM)
+                        st.session_state.conversation_id = cid
+                        st.session_state.title_set = False
+                        st.session_state.messages = [{"role": "system", "content": DEFAULT_SYSTEM}]
+                        st.session_state.total_input_tokens = 0
+                        st.session_state.total_output_tokens = 0
+                        st.query_params["conv"] = cid
+                    st.rerun()
 
     st.divider()
-    st.header("Settings")
 
-    model_index = MODELS.index(st.session_state.pending_model) if st.session_state.pending_model in MODELS else 1
-    model = st.selectbox("Model", MODELS, index=model_index)
+    with st.expander("Settings", expanded=False):
+        model_index = MODELS.index(st.session_state.pending_model) if st.session_state.pending_model in MODELS else 1
+        model = st.selectbox("Model", MODELS, index=model_index)
 
-    temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
-    st.caption("0 = deterministic (better for facts/code), 1 = creative (better for writing/brainstorming)")
+        temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
+        st.caption("0 = deterministic · 1 = creative")
 
-    system_prompt = st.text_area(
-        "System prompt",
-        value=st.session_state.messages[0]["content"],
-        height=150,
-    )
+        system_prompt = st.text_area(
+            "System prompt",
+            value=st.session_state.messages[0]["content"],
+            height=120,
+        )
 
-    if st.button("Apply system prompt"):
-        st.session_state.messages[0] = {"role": "system", "content": system_prompt}
-        database.update_conversation_meta(st.session_state.conversation_id, model, system_prompt)
-        st.rerun()
+        if st.button("Apply system prompt", use_container_width=True):
+            st.session_state.messages[0] = {"role": "system", "content": system_prompt}
+            database.update_conversation_meta(st.session_state.conversation_id, model, system_prompt)
+            st.rerun()
 
-    st.download_button(
-        "Export conversation",
-        data=json.dumps(st.session_state.messages, indent=2),
-        file_name="conversation.json",
-        mime="application/json",
-    )
+        if st.button("Clear conversation", use_container_width=True, type="secondary"):
+            cid = database.create_conversation(model, system_prompt)
+            st.session_state.conversation_id = cid
+            st.session_state.title_set = False
+            st.session_state.messages = [{"role": "system", "content": system_prompt}]
+            st.session_state.total_input_tokens = 0
+            st.session_state.total_output_tokens = 0
+            st.rerun()
 
-    if st.button("Clear conversation"):
-        cid = database.create_conversation(model, system_prompt)
-        st.session_state.conversation_id = cid
-        st.session_state.title_set = False
-        st.session_state.messages = [{"role": "system", "content": system_prompt}]
-        st.session_state.total_input_tokens = 0
-        st.session_state.total_output_tokens = 0
-        st.rerun()
+        if "export_format" not in st.session_state:
+            st.session_state.export_format = "JSON"
+        if st.session_state.export_format == "JSON":
+            export_data = json.dumps(st.session_state.messages, indent=2)
+            export_filename = "conversation.json"
+            export_mime = "application/json"
+        else:
+            lines = []
+            for msg in st.session_state.messages:
+                if msg["role"] == "system":
+                    lines.append(f"[System]\n{msg['content']}\n")
+                elif msg["role"] == "user":
+                    lines.append(f"[User]\n{msg['content']}\n")
+                else:
+                    lines.append(f"[Assistant]\n{msg['content']}\n")
+            export_data = "\n".join(lines)
+            export_filename = "conversation.txt"
+            export_mime = "text/plain"
+        st.download_button(
+            "Export conversation",
+            data=export_data,
+            file_name=export_filename,
+            mime=export_mime,
+            use_container_width=True,
+        )
+        st.radio("Export format", ["JSON", "TXT"], horizontal=True, key="export_format")
 
     st.divider()
-    st.subheader("Token usage")
-    st.caption(f"Input: {st.session_state.total_input_tokens}")
-    st.caption(f"Output: {st.session_state.total_output_tokens}")
-    st.caption(f"Total: {st.session_state.total_input_tokens + st.session_state.total_output_tokens}")
+    st.caption("Token usage")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("In", st.session_state.total_input_tokens)
+    col2.metric("Out", st.session_state.total_output_tokens)
+    col3.metric("Total", st.session_state.total_input_tokens + st.session_state.total_output_tokens)
+
+st.caption(f"Model: `{model}` · Temperature: `{temperature}`")
+
+# Empty state
+non_system = [m for m in st.session_state.messages if m["role"] != "system"]
+if not non_system:
+    st.markdown(
+        "<div style='text-align:center; padding: 4rem 0; color: #888;'>"
+        "<p style='font-size:1.5rem;'>How can I help you today?</p>"
+        "<p style='font-size:0.9rem;'>Type a message below to start the conversation.</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 # Render existing messages
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            render_markdown(msg["content"])
 
 # Fragment always defined for consistent run_every lifecycle
 @st.fragment(run_every=0.1)
@@ -156,7 +254,7 @@ def streaming_display():
         return
 
     with st.chat_message("assistant"):
-        st.markdown(gen["buffer"] + "▌")
+        render_markdown(gen["buffer"] + "▌")
 
     if st.button("⬛ Stop generating"):
         gen["stop"].set()
@@ -176,6 +274,7 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
     if not st.session_state.title_set:
         database.set_conversation_title(cid, prompt)
         st.session_state.title_set = True
+        st.query_params["conv"] = cid
 
     database.save_message(cid, "user", prompt)
     database.update_conversation_meta(cid, mdl, st.session_state.messages[0]["content"])
