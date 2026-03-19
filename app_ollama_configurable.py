@@ -6,6 +6,7 @@ import threading
 import streamlit as st
 import ollama
 import database
+from streamlit_mic_recorder import speech_to_text
 
 
 def extract_text(file) -> str:
@@ -71,6 +72,8 @@ if "pending_temperature" not in st.session_state:
     st.session_state.pending_temperature = 0.7
 if "queued_prompt" not in st.session_state:
     st.session_state.queued_prompt = None
+if "msg_input" not in st.session_state:
+    st.session_state.msg_input = ""
 if "conversation_id" not in st.session_state:
     conv_param = st.query_params.get("conv")
     loaded = database.load_conversation(int(conv_param)) if conv_param else None
@@ -95,6 +98,8 @@ if "doc_text" not in st.session_state:
     st.session_state.doc_text = None
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = None
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
 
 # Sidebar
 with st.sidebar:
@@ -237,6 +242,7 @@ with st.sidebar:
     col2.metric("Out", st.session_state.total_output_tokens)
     col3.metric("Total", st.session_state.total_input_tokens + st.session_state.total_output_tokens)
 
+
 st.caption(f"Model: `{model}` · Temperature: `{temperature}`")
 
 # Empty state
@@ -259,6 +265,8 @@ last_assistant_i = max(
 for i, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
+            if msg.get("attachment"):
+                st.caption(f"📄 {msg['attachment']}")
             render_markdown(msg.get("display", msg["content"]))
         if msg["role"] == "assistant":
             is_last = i == last_assistant_i
@@ -356,7 +364,9 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
         st.session_state.title_set = True
         st.query_params["conv"] = cid
 
+    attachment = None
     if st.session_state.doc_text:
+        attachment = st.session_state.doc_name
         full_content = (
             f"[Document: {st.session_state.doc_name}]\n\n"
             f"{st.session_state.doc_text}\n\n---\n\n"
@@ -371,46 +381,64 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
 
     database.save_message(cid, "user", full_content)
     database.update_conversation_meta(cid, mdl, st.session_state.messages[0]["content"])
-    st.session_state.messages.append({"role": "user", "content": full_content, "display": display_content})
+    st.session_state.messages.append({"role": "user", "content": full_content, "display": display_content, "attachment": attachment})
     _kick_generation(mdl, temp)
 
 
-# Document upload
+
+# Apply any pending state changes before widgets render
+if st.session_state.pop("_clear_input", False):
+    st.session_state.msg_input = ""
+_pending_voice = st.session_state.pop("_voice_result", None)
+if _pending_voice:
+    st.session_state.msg_input = _pending_voice
+
+# File uploader — shown above input
 uploaded_file = st.file_uploader(
-    "📎 Drag & drop or click to attach a file — PDF, DOCX, TXT, MD, CSV",
+    "📎 Attach a file — PDF, DOCX, TXT, MD, CSV",
     type=["pdf", "docx", "txt", "md", "csv"],
-    key="file_uploader",
+    key=f"file_uploader_{st.session_state.uploader_key}",
+    label_visibility="collapsed",
 )
 if uploaded_file:
-    text = extract_text(uploaded_file)[:60000]
-    st.session_state.doc_text = text
+    st.session_state.doc_text = extract_text(uploaded_file)[:60000]
     st.session_state.doc_name = uploaded_file.name
 
-if st.session_state.doc_text:
-    col_info, col_remove = st.columns([6, 1])
-    with col_info:
-        st.caption(f"📄 **{st.session_state.doc_name}** · {len(st.session_state.doc_text):,} chars · type your question below and send")
-    with col_remove:
-        if st.button("✕", help="Remove document"):
-            st.session_state.doc_text = None
-            st.session_state.doc_name = None
-            st.rerun()
-    with st.expander("Preview first 500 characters"):
-        st.text(st.session_state.doc_text[:500] + ("…" if len(st.session_state.doc_text) > 500 else ""))
+# Text input + send + mic (all in one row)
+col_text, col_send, col_mic = st.columns([10, 1, 1])
+with col_text:
+    user_input = st.text_area(
+        "Message",
+        key="msg_input",
+        height=80,
+        label_visibility="collapsed",
+        placeholder="Type your message…",
+        disabled=st.session_state.is_generating,
+    )
+with col_send:
+    send = st.button("➤", disabled=st.session_state.is_generating, use_container_width=True)
+with col_mic:
+    voice_text = speech_to_text(
+        language="en",
+        start_prompt="🎤",
+        stop_prompt="⏹",
+        just_once=True,
+        use_container_width=True,
+        key="voice",
+    )
 
-# Disable send button while generating
-if st.session_state.is_generating:
-    st.markdown("""
-    <style>
-    [data-testid="stChatInputSubmitButton"] { pointer-events: none; opacity: 0.3; }
-    </style>
-    """, unsafe_allow_html=True)
+# Store voice result for next render cycle (so text area picks it up)
+if voice_text:
+    st.session_state._voice_result = voice_text
+    st.rerun()
 
-if prompt := st.chat_input("Type your message..."):
+if send and user_input.strip():
+    st.session_state._clear_input = True
+    st.session_state.uploader_key += 1
     if st.session_state.is_generating:
-        st.session_state.queued_prompt = prompt
+        st.session_state.queued_prompt = user_input.strip()
     else:
-        start_generation(prompt, model, temperature)
+        start_generation(user_input.strip(), model, temperature)
         st.rerun()
 
 if not st.session_state.is_generating and st.session_state.queued_prompt:
