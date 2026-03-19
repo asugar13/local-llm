@@ -121,6 +121,21 @@ def load_conversation(conversation_id: int) -> dict | None:
         conn.close()
 
 
+def replace_messages(conversation_id: int, messages: list) -> None:
+    """Delete all messages for a conversation and re-insert the given list."""
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+        for msg in messages:
+            conn.execute(
+                "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+                (conversation_id, msg["role"], msg["content"], datetime.utcnow().isoformat()),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def delete_conversation(conversation_id: int) -> None:
     conn = _connect()
     try:

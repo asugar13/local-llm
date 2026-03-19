@@ -232,15 +232,40 @@ if not non_system:
         unsafe_allow_html=True,
     )
 
+last_assistant_i = max(
+    (i for i, m in enumerate(st.session_state.messages) if m["role"] == "assistant"),
+    default=None,
+)
+
 # Render existing messages
 for i, msg in enumerate(st.session_state.messages):
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             render_markdown(msg["content"])
         if msg["role"] == "assistant":
-            if st.button("Copy", key=f"copy_{i}"):
-                subprocess.run(["pbcopy"], input=msg["content"].encode(), check=True)
-                st.toast("Copied to clipboard!")
+            is_last = i == last_assistant_i
+            non_sys = [m for m in st.session_state.messages if m["role"] != "system"]
+            show_regen = is_last and not st.session_state.is_generating and non_sys[-1]["role"] == "assistant"
+            if show_regen:
+                col_copy, col_spacer, col_regen = st.columns([1, 6, 1])
+                with col_copy:
+                    if st.button("Copy", key=f"copy_{i}"):
+                        subprocess.run(["pbcopy"], input=msg["content"].encode(), check=True)
+                        st.toast("Copied to clipboard!")
+                with col_regen:
+                    last_user = next((m for m in reversed(st.session_state.messages) if m["role"] == "user"), None)
+                    if last_user and st.button("↺", key=f"regen_{i}", help="Regenerate response"):
+                        st.session_state.messages.pop()
+                        database.replace_messages(
+                            st.session_state.conversation_id,
+                            [m for m in st.session_state.messages if m["role"] != "system"],
+                        )
+                        _kick_generation(model, temperature)
+                        st.rerun()
+            else:
+                if st.button("Copy", key=f"copy_{i}"):
+                    subprocess.run(["pbcopy"], input=msg["content"].encode(), check=True)
+                    st.toast("Copied to clipboard!")
 
 # Fragment always defined for consistent run_every lifecycle
 @st.fragment(run_every=0.1)
@@ -273,33 +298,17 @@ def streaming_display():
             database.save_message(gen["conversation_id"], "assistant", content)
         st.rerun(scope="app")
 
-streaming_display()
-
-
-def start_generation(prompt: str, mdl: str, temp: float) -> None:
+def _kick_generation(mdl: str, temp: float) -> None:
     cid = st.session_state.conversation_id
-
-    if not st.session_state.title_set:
-        database.set_conversation_title(cid, prompt)
-        st.session_state.title_set = True
-        st.query_params["conv"] = cid
-
-    database.save_message(cid, "user", prompt)
-    database.update_conversation_meta(cid, mdl, st.session_state.messages[0]["content"])
-
-    st.session_state.messages.append({"role": "user", "content": prompt})
-
     st._gen["buffer"] = ""
     st._gen["done"] = False
     st._gen["input_tokens"] = 0
     st._gen["output_tokens"] = 0
     st._gen["stop"].clear()
     st._gen["conversation_id"] = cid
-
     st.session_state.is_generating = True
     st.session_state.pending_model = mdl
     st.session_state.pending_temperature = temp
-
     messages_snapshot = list(st.session_state.messages)
 
     def generate(messages, m, t):
@@ -316,6 +325,23 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
         gen["done"] = True
 
     threading.Thread(target=generate, args=(messages_snapshot, mdl, temp), daemon=True).start()
+
+
+streaming_display()
+
+
+def start_generation(prompt: str, mdl: str, temp: float) -> None:
+    cid = st.session_state.conversation_id
+
+    if not st.session_state.title_set:
+        database.set_conversation_title(cid, prompt)
+        st.session_state.title_set = True
+        st.query_params["conv"] = cid
+
+    database.save_message(cid, "user", prompt)
+    database.update_conversation_meta(cid, mdl, st.session_state.messages[0]["content"])
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    _kick_generation(mdl, temp)
 
 
 # Disable send button while generating
