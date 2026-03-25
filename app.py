@@ -6,7 +6,7 @@ import threading
 import streamlit as st
 import ollama
 import database
-from streamlit_mic_recorder import speech_to_text
+import stt
 
 
 def extract_text(file) -> str:
@@ -153,14 +153,14 @@ if "total_output_tokens" not in st.session_state:
     st.session_state.total_output_tokens = 0
 if "is_generating" not in st.session_state:
     st.session_state.is_generating = False
+if "is_recording" not in st.session_state:
+    st.session_state.is_recording = False
 if "pending_model" not in st.session_state:
     st.session_state.pending_model = DEFAULT_MODEL
 if "pending_temperature" not in st.session_state:
     st.session_state.pending_temperature = 0.7
 if "queued_prompt" not in st.session_state:
     st.session_state.queued_prompt = None
-if "msg_input" not in st.session_state:
-    st.session_state.msg_input = ""
 if "conversation_id" not in st.session_state:
     conv_param = st.query_params.get("conv")
     loaded = database.load_conversation(int(conv_param)) if conv_param else None
@@ -339,6 +339,26 @@ with st.sidebar:
     col3.metric("Total", st.session_state.total_input_tokens + st.session_state.total_output_tokens)
 
     st.divider()
+    st.caption("Voice input")
+    if not st.session_state.get("is_recording", False):
+        if st.button("🎤 Start recording", use_container_width=True, disabled=st.session_state.is_generating):
+            stt.start_recording()
+            st.session_state.is_recording = True
+            st.rerun()
+    else:
+        st.info("🔴 Recording... speak now.")
+        if st.button("⏹ Stop and transcribe", use_container_width=True, type="primary"):
+            audio = stt.stop_recording()
+            st.session_state.is_recording = False
+            with st.spinner("Transcribing..."):
+                transcript = stt.transcribe(audio)
+            if transcript:
+                st.session_state.pending_voice_input = transcript
+            else:
+                st.warning("No speech detected.")
+            st.rerun()
+
+    st.divider()
     st.markdown("_If you are experiencing a mental health emergency, please contact a crisis helpline immediately._")
 
 
@@ -485,13 +505,6 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
 
 
 
-# Apply any pending state changes before widgets render
-if st.session_state.pop("_clear_input", False):
-    st.session_state.msg_input = ""
-_pending_voice = st.session_state.pop("_voice_result", None)
-if _pending_voice:
-    st.session_state.msg_input = _pending_voice
-
 # File uploader — shown above input
 uploaded_file = st.file_uploader(
     "📎 Attach a file — PDF, DOCX, TXT, MD, CSV",
@@ -503,41 +516,36 @@ if uploaded_file:
     st.session_state.doc_text = extract_text(uploaded_file)[:60000]
     st.session_state.doc_name = uploaded_file.name
 
-# Text input + send + mic (all in one row)
-col_text, col_send, col_mic = st.columns([10, 1, 1])
-with col_text:
-    user_input = st.text_area(
-        "Message",
-        key="msg_input",
-        height=80,
-        label_visibility="collapsed",
-        placeholder="Share what is on your mind...",
-        disabled=st.session_state.is_generating,
-    )
-with col_send:
-    send = st.button("➤", disabled=st.session_state.is_generating, use_container_width=True)
-with col_mic:
-    voice_text = speech_to_text(
-        language="en",
-        start_prompt="🎤",
-        stop_prompt="⏹",
-        just_once=True,
-        use_container_width=True,
-        key="voice",
-    )
+# Prepopulate from voice before the form renders (must happen before widget instantiation)
+if "pending_voice_input" in st.session_state:
+    transcript = st.session_state.pop("pending_voice_input")
+    current = st.session_state.get("msg_input", "")
+    st.session_state.msg_input = (current + "\n" + transcript).lstrip("\n")
 
-# Store voice result for next render cycle (so text area picks it up)
-if voice_text:
-    st.session_state._voice_result = voice_text
-    st.rerun()
+with st.form("chat_form", enter_to_submit=True, clear_on_submit=True):
+    col_input, col_send = st.columns([11, 1])
+    with col_input:
+        user_input = st.text_input(
+            "Message",
+            key="msg_input",
+            label_visibility="collapsed",
+            placeholder="Share what is on your mind...",
+            disabled=st.session_state.is_generating,
+        )
+    with col_send:
+        send = st.form_submit_button(
+            "➤",
+            disabled=st.session_state.is_generating,
+            use_container_width=True,
+        )
 
-if send and user_input.strip():
-    st.session_state._clear_input = True
+if send and user_input and user_input.strip():
+    prompt = user_input.strip()
     st.session_state.uploader_key += 1
     if st.session_state.is_generating:
-        st.session_state.queued_prompt = user_input.strip()
+        st.session_state.queued_prompt = prompt
     else:
-        start_generation(user_input.strip(), model, temperature)
+        start_generation(prompt, model, temperature)
         st.rerun()
 
 if not st.session_state.is_generating and st.session_state.queued_prompt:
