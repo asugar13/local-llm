@@ -30,7 +30,7 @@ def render_markdown(content: str) -> None:
 
 database.init_db()
 
-st.set_page_config(page_title="Qwen Local Chat", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="CBT Therapy Session", page_icon="🧠", layout="centered")
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 0; }
@@ -39,8 +39,9 @@ st.markdown("""
     section[data-testid="stSidebar"] .stMetric label { font-size: 0.75rem; }
 </style>
 """, unsafe_allow_html=True)
-st.title("Qwen Local Chat")
-st.caption("Running entirely on your machine · No data leaves this device")
+st.title("CBT Therapy Session")
+st.caption("This is an AI-assisted practice tool, not a substitute for professional mental health care.")
+st.info("Privacy note: this session runs entirely on your machine. No conversation data is transmitted or stored externally.")
 
 # Module-level state for thread communication (session state is not thread-safe)
 if "_gen" not in st.__dict__:
@@ -191,9 +192,9 @@ if "uploader_key" not in st.session_state:
 
 # Sidebar
 with st.sidebar:
-    st.header("Conversations")
+    st.header("Session")
 
-    if st.button("+ New conversation", use_container_width=True):
+    if st.button("End session and start over", use_container_width=True):
         current_system = st.session_state.messages[0]["content"]
         cid = database.create_conversation(st.session_state.pending_model, current_system)
         st.session_state.conversation_id = cid
@@ -336,6 +337,9 @@ with st.sidebar:
     col1.metric("In", st.session_state.total_input_tokens)
     col2.metric("Out", st.session_state.total_output_tokens)
     col3.metric("Total", st.session_state.total_input_tokens + st.session_state.total_output_tokens)
+
+    st.divider()
+    st.markdown("_If you are experiencing a mental health emergency, please contact a crisis helpline immediately._")
 
 
 st.caption(f"Model: `{model}` · Temperature: `{temperature}`")
@@ -507,7 +511,7 @@ with col_text:
         key="msg_input",
         height=80,
         label_visibility="collapsed",
-        placeholder="Type your message…",
+        placeholder="Share what is on your mind...",
         disabled=st.session_state.is_generating,
     )
 with col_send:
