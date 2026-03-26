@@ -9,17 +9,18 @@ import database
 import stt
 
 
-def extract_text(file) -> str:
-    name = file.name.lower()
+@st.cache_data(show_spinner=False)
+def extract_text(file_bytes: bytes, name: str) -> str:
+    name = name.lower()
     if name.endswith(".pdf"):
         import fitz
-        doc = fitz.open(stream=file.read(), filetype="pdf")
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
         return "\n".join(page.get_text() for page in doc)
     elif name.endswith(".docx"):
         from docx import Document
-        return "\n".join(p.text for p in Document(io.BytesIO(file.read())).paragraphs)
+        return "\n".join(p.text for p in Document(io.BytesIO(file_bytes)).paragraphs)
     else:
-        return file.read().decode("utf-8", errors="ignore")
+        return file_bytes.decode("utf-8", errors="ignore")
 
 
 def render_markdown(content: str) -> None:
@@ -99,6 +100,8 @@ If at any point the patient expresses thoughts of suicide, self-harm, or harming
    - Samaritans (UK): 116 123
 4. Do not continue the CBT session. Gently but firmly redirect to professional help.
 5. Do not ask probing questions about the method or plan.
+
+Important distinction: if the patient describes dark or disturbing content in the context of dreams, nightmares, or intrusive thoughts (e.g. "I dreamed I hurt someone", "I keep having thoughts about death"), do NOT trigger the safety protocol. This is legitimate therapeutic material. Explore it with Socratic questioning to uncover underlying fears, automatic thoughts, or cognitive distortions. Only trigger the safety protocol if the patient expresses active intent or desire to harm themselves or others in reality.
 
 --- SCOPE LIMITATIONS ---
 - You are a practice tool, NOT a replacement for a licensed therapist.
@@ -513,16 +516,21 @@ uploaded_file = st.file_uploader(
     label_visibility="collapsed",
 )
 if uploaded_file:
-    st.session_state.doc_text = extract_text(uploaded_file)[:60000]
+    file_bytes = uploaded_file.read()
+    st.session_state.doc_text = extract_text(file_bytes, uploaded_file.name)[:60000]
     st.session_state.doc_name = uploaded_file.name
 
-# Prepopulate from voice before the form renders (must happen before widget instantiation)
+# Clear input — must happen before the widget renders
+if st.session_state.pop("_clear_input", False):
+    st.session_state.msg_input = ""
+
+# Prepopulate from voice — must happen before the widget renders
 if "pending_voice_input" in st.session_state:
     transcript = st.session_state.pop("pending_voice_input")
     current = st.session_state.get("msg_input", "")
     st.session_state.msg_input = (current + "\n" + transcript).lstrip("\n")
 
-with st.form("chat_form", enter_to_submit=True, clear_on_submit=True):
+with st.form("chat_form", enter_to_submit=True):
     col_input, col_send = st.columns([11, 1])
     with col_input:
         user_input = st.text_input(
@@ -541,6 +549,7 @@ with st.form("chat_form", enter_to_submit=True, clear_on_submit=True):
 
 if send and user_input and user_input.strip():
     prompt = user_input.strip()
+    st.session_state._clear_input = True
     st.session_state.uploader_key += 1
     if st.session_state.is_generating:
         st.session_state.queued_prompt = prompt
