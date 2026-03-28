@@ -77,7 +77,7 @@ When you detect a distortion, do not name it immediately. First explore the thou
 
 --- SESSION STRUCTURE ---
 Follow this arc across the conversation:
-1. Check-in: Ask how the patient has been since last time (or how they are feeling today).
+1. Check-in: Begin by asking the patient to rate their current mood on a scale of 1 to 10, where 1 is the lowest they have felt and 10 is the best. After they give a number, acknowledge it warmly and ask how they have been since last time.
 2. Agenda setting: Agree on one or two topics to focus on.
 3. Homework review: Follow up on any tasks set previously.
 4. Main work: Apply CBT techniques to the agreed topic.
@@ -160,6 +160,8 @@ if "is_generating" not in st.session_state:
     st.session_state.is_generating = False
 if "is_recording" not in st.session_state:
     st.session_state.is_recording = False
+if "mood_saved" not in st.session_state:
+    st.session_state.mood_saved = False
 if "pending_model" not in st.session_state:
     st.session_state.pending_model = DEFAULT_MODEL
 if "pending_temperature" not in st.session_state:
@@ -213,6 +215,7 @@ with st.sidebar:
         st.session_state.total_output_tokens = 0
         st.session_state.renaming_id = None
         st.session_state.session_summary = None
+        st.session_state.mood_saved = False
         st.query_params["conv"] = cid
         st.rerun()
 
@@ -260,6 +263,7 @@ with st.sidebar:
                         st.session_state.total_input_tokens = 0
                         st.session_state.total_output_tokens = 0
                         st.session_state.session_summary = None
+                        st.session_state.mood_saved = False
                         st.query_params["conv"] = data["id"]
                         st.rerun()
             with col_ren:
@@ -395,6 +399,31 @@ with st.sidebar:
             mime="text/plain",
             use_container_width=True,
         )
+
+    st.divider()
+    mood_history = database.get_mood_history()
+    if mood_history:
+        st.caption("Mood history")
+        import pandas as pd
+        import altair as alt
+        df = pd.DataFrame(mood_history)
+        df["session"] = range(1, len(df) + 1)
+        df["date"] = df["created_at"].str[:10]
+        chart = (
+            alt.Chart(df)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("session:Q", title="Session", axis=alt.Axis(tickMinStep=1)),
+                y=alt.Y("rating:Q", title="Mood (1–10)", scale=alt.Scale(domain=[1, 10])),
+                tooltip=[
+                    alt.Tooltip("session:Q", title="Session"),
+                    alt.Tooltip("rating:Q", title="Mood"),
+                    alt.Tooltip("date:N", title="Date"),
+                ],
+            )
+            .properties(height=150)
+        )
+        st.altair_chart(chart, use_container_width=True)
 
     st.divider()
     st.caption("Token usage")
@@ -613,6 +642,14 @@ if send and user_input and user_input.strip():
     prompt = user_input.strip()
     st.session_state._clear_input = True
     st.session_state.uploader_key += 1
+
+    # Mood extraction: save the first 1-10 number the patient mentions this session
+    if not st.session_state.get("mood_saved"):
+        match = re.search(r'\b(10|[1-9])\b', prompt)
+        if match:
+            database.save_mood_rating(st.session_state.conversation_id, int(match.group()))
+            st.session_state.mood_saved = True
+
     if st.session_state.is_generating:
         st.session_state.queued_prompt = prompt
     else:
