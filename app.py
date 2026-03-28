@@ -3,7 +3,9 @@ import json
 import re
 import subprocess
 import threading
+import base64
 import streamlit as st
+import streamlit.components.v1 as components
 import ollama
 import database
 import stt
@@ -192,6 +194,8 @@ if "doc_name" not in st.session_state:
     st.session_state.doc_name = None
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
+if "session_summary" not in st.session_state:
+    st.session_state.session_summary = None
 
 # Sidebar
 with st.sidebar:
@@ -208,6 +212,7 @@ with st.sidebar:
         st.session_state.total_input_tokens = 0
         st.session_state.total_output_tokens = 0
         st.session_state.renaming_id = None
+        st.session_state.session_summary = None
         st.query_params["conv"] = cid
         st.rerun()
 
@@ -254,6 +259,7 @@ with st.sidebar:
                         st.session_state.title_set = True
                         st.session_state.total_input_tokens = 0
                         st.session_state.total_output_tokens = 0
+                        st.session_state.session_summary = None
                         st.query_params["conv"] = data["id"]
                         st.rerun()
             with col_ren:
@@ -333,6 +339,62 @@ with st.sidebar:
             use_container_width=True,
         )
         st.radio("Export format", ["JSON", "TXT"], horizontal=True, key="export_format")
+
+    st.divider()
+    non_sys_msgs = [m for m in st.session_state.messages if m["role"] != "system"]
+    has_session = len(non_sys_msgs) > 2
+    if st.button("Generate session summary", use_container_width=True, disabled=not has_session):
+        transcript = "\n\n".join(
+            f"{'Dr. Elena' if m['role'] == 'assistant' else 'Patient'}: {m.get('display', m['content'])}"
+            for m in non_sys_msgs
+        )
+        summary_prompt = [
+            {"role": "user", "content": (
+                "Below is a transcript of a CBT therapy session between a patient and Dr. Elena.\n\n"
+                f"{transcript}\n\n"
+                "Write a structured session summary in the third person, suitable for the patient to read. "
+                "Refer to the patient as 'the patient' and the therapist as 'Dr. Elena'. "
+                "Use warm, clear, non-clinical language. "
+                "Produce a concise summary with exactly these four sections:\n\n"
+                "MAIN THEMES\n"
+                "- Bullet points of the key topics the patient brought to the session.\n\n"
+                "COGNITIVE DISTORTIONS IDENTIFIED\n"
+                "- Bullet points of any thinking patterns noticed, with a brief example of what the patient expressed.\n\n"
+                "HOMEWORK ASSIGNED\n"
+                "- Bullet points of any tasks or exercises Dr. Elena suggested for the patient to try.\n\n"
+                "KEY INSIGHTS\n"
+                "- Bullet points of the most important realisations or progress the patient made this session.\n\n"
+                "If a section has nothing to report, write '- None identified this session.'"
+            )},
+        ]
+
+        try:
+            with st.spinner("Generating summary..."):
+                text = ""
+                for chunk in ollama.chat(
+                    model=st.session_state.pending_model,
+                    messages=summary_prompt,
+                    options={"temperature": 0.3},
+                    stream=True,
+                ):
+                    text += chunk["message"]["content"]
+            if text.strip():
+                st.session_state.session_summary = text.strip()
+                st.rerun()
+            else:
+                st.warning("Model returned an empty summary. Try again.")
+        except Exception as e:
+            st.error(f"Summary generation failed: {e}")
+
+    if st.session_state.get("session_summary"):
+        st.text_area("Summary", value=st.session_state.session_summary, height=200, disabled=True, label_visibility="collapsed")
+        st.download_button(
+            "⬇️ Download summary (.txt)",
+            data=st.session_state.session_summary,
+            file_name="session_summary.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
 
     st.divider()
     st.caption("Token usage")
@@ -447,7 +509,7 @@ for i, msg in enumerate(st.session_state.messages):
 # Fragment always defined for consistent run_every lifecycle
 @st.fragment(run_every=0.1)
 def streaming_display():
-    if not st.session_state.is_generating:
+    if not st.session_state.get("is_generating", False):
         return
 
     gen = st._gen
