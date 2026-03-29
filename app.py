@@ -143,6 +143,23 @@ OPENING_MESSAGE = (
 )
 
 DEFAULT_SYSTEM = SYSTEM_PROMPT
+
+
+def build_system_prompt_with_history(base_prompt: str, exclude_id: int | None = None) -> str:
+    """Append a patient history block to the system prompt if past sessions exist."""
+    history = database.get_patient_history(exclude_conversation_id=exclude_id)
+    if not history:
+        return base_prompt
+    lines = ["", "--- PATIENT HISTORY ---",
+             "The following are summaries of this patient's previous sessions. "
+             "Use them to personalise today's session and maintain continuity.\n"]
+    for i, s in enumerate(sorted(history, key=lambda x: x["created_at"]), 1):
+        mood = f" — Mood: {s['rating']}/10" if s["rating"] else ""
+        date = s["created_at"][:10]
+        lines.append(f"Session {i} ({date}){mood}")
+        lines.append(s["summary"])
+        lines.append("")
+    return base_prompt + "\n".join(lines)
 try:
     MODELS = sorted([m.model for m in ollama.list().models])
 except Exception:
@@ -180,9 +197,11 @@ if "conversation_id" not in st.session_state:
         st.session_state.pending_model = loaded["model"]
         st.session_state.title_set = loaded["title"] != "New conversation"
     else:
-        cid = database.create_conversation(DEFAULT_MODEL, DEFAULT_SYSTEM)
+        system = build_system_prompt_with_history(DEFAULT_SYSTEM)
+        cid = database.create_conversation(DEFAULT_MODEL, system)
         st.session_state.conversation_id = cid
         st.session_state.title_set = False
+        st.session_state.messages = [{"role": "system", "content": system}]
         st.query_params["conv"] = cid
         database.save_message(cid, "assistant", OPENING_MESSAGE)
         st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
@@ -204,11 +223,11 @@ with st.sidebar:
     st.header("Session")
 
     if st.button("End session and start over", use_container_width=True):
-        current_system = st.session_state.messages[0]["content"]
-        cid = database.create_conversation(st.session_state.pending_model, current_system)
+        system = build_system_prompt_with_history(SYSTEM_PROMPT)
+        cid = database.create_conversation(st.session_state.pending_model, system)
         st.session_state.conversation_id = cid
         st.session_state.title_set = False
-        st.session_state.messages = [{"role": "system", "content": current_system}]
+        st.session_state.messages = [{"role": "system", "content": system}]
         database.save_message(cid, "assistant", OPENING_MESSAGE)
         st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
         st.session_state.total_input_tokens = 0
@@ -307,10 +326,11 @@ with st.sidebar:
 
         if st.button("Clear conversation", use_container_width=True, type="secondary"):
             database.delete_conversation(st.session_state.conversation_id)
-            cid = database.create_conversation(model, system_prompt)
+            system = build_system_prompt_with_history(SYSTEM_PROMPT)
+            cid = database.create_conversation(model, system)
             st.session_state.conversation_id = cid
             st.session_state.title_set = False
-            st.session_state.messages = [{"role": "system", "content": system_prompt}]
+            st.session_state.messages = [{"role": "system", "content": system}]
             database.save_message(cid, "assistant", OPENING_MESSAGE)
             st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
             st.session_state.total_input_tokens = 0
@@ -384,6 +404,7 @@ with st.sidebar:
                     text += chunk["message"]["content"]
             if text.strip():
                 st.session_state.session_summary = text.strip()
+                database.save_conversation_summary(st.session_state.conversation_id, text.strip())
                 st.rerun()
             else:
                 st.warning("Model returned an empty summary. Try again.")

@@ -38,7 +38,12 @@ def init_db() -> None:
                 created_at      TEXT    NOT NULL
             );
         """)
-        conn.commit()
+        # Migration: add summary column if it doesn't exist yet
+        try:
+            conn.execute("ALTER TABLE conversations ADD COLUMN summary TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
     finally:
         conn.close()
 
@@ -161,6 +166,35 @@ def save_mood_rating(conversation_id: int, rating: int) -> None:
             (conversation_id, rating, datetime.utcnow().isoformat()),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def save_conversation_summary(conversation_id: int, summary: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE conversations SET summary = ? WHERE id = ?",
+            (summary, conversation_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_patient_history(exclude_conversation_id: int | None = None) -> list:
+    """Return past sessions that have a summary, ordered oldest first."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT c.id, c.title, c.created_at, c.summary, mr.rating "
+            "FROM conversations c "
+            "LEFT JOIN mood_ratings mr ON mr.conversation_id = c.id "
+            "WHERE c.summary IS NOT NULL AND (? IS NULL OR c.id != ?) "
+            "ORDER BY c.created_at DESC LIMIT 10",
+            (exclude_conversation_id, exclude_conversation_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
