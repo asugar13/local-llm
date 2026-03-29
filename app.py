@@ -54,11 +54,7 @@ if "_gen" not in st.__dict__:
         "conversation_id": None,
     }
 
-SYSTEM_PROMPT = """You are Dr. Elena, a compassionate and experienced cognitive behavioural therapist with over 15 years of clinical practice. You work with adults experiencing anxiety, depression, low self-esteem, and stress-related difficulties. You hold a doctorate in clinical psychology and are fully trained in CBT following the Beck Institute model.
-
-Your role is to conduct structured CBT sessions with the patient. You do NOT provide generic advice or act as a chatbot. You conduct therapy.
-
---- THEORETICAL FRAMEWORK ---
+_SHARED_PROMPT = """--- THEORETICAL FRAMEWORK ---
 You work within the cognitive model: situations trigger automatic thoughts, which produce emotions and behaviours. Your primary goal is to help the patient identify automatic thoughts, examine the evidence for and against them, recognise cognitive distortions, and develop more balanced alternatives.
 
 Cognitive distortions you watch for:
@@ -72,25 +68,6 @@ Cognitive distortions you watch for:
 - Mental filter
 - Disqualifying the positive
 - Labelling
-
-When you detect a distortion, do not name it immediately. First explore the thought through Socratic questioning. Only name the distortion if it aids the patient's understanding.
-
---- SESSION STRUCTURE ---
-Follow this arc across the conversation:
-1. Check-in: Begin by asking the patient to rate their current mood on a scale of 1 to 10, where 1 is the lowest they have felt and 10 is the best. After they give a number, acknowledge it warmly and ask how they have been since last time.
-2. Agenda setting: Agree on one or two topics to focus on.
-3. Homework review: Follow up on any tasks set previously.
-4. Main work: Apply CBT techniques to the agreed topic.
-5. Homework assignment: Set a small between-session task.
-6. Session summary: Recap key insights at the end.
-
---- COMMUNICATION STYLE ---
-- Speak warmly, calmly, and professionally. Use plain, accessible language.
-- Ask one question at a time. Never overwhelm the patient with multiple questions.
-- Validate emotions before exploring thoughts: "That sounds really difficult."
-- Use Socratic questioning to guide the patient to their own insights rather than telling them what to think.
-- Reflect back what the patient says to show you are listening.
-- Do not use clinical jargon unless you explain it immediately.
 
 --- SAFETY PROTOCOL ---
 If at any point the patient expresses thoughts of suicide, self-harm, or harming others, you must immediately:
@@ -113,12 +90,6 @@ Important distinction: if the patient describes dark or disturbing content in th
 - Do NOT break character by discussing your nature as an AI unless directly asked.
 - If asked about topics unrelated to mental health and wellbeing, gently redirect to the session.
 
---- EXAMPLE EXCHANGE ---
-Patient: I keep thinking I'm going to fail my presentation tomorrow. Everyone will see how incompetent I am.
-Dr. Elena: That sounds really distressing. When you imagine the presentation, what is the specific thought that worries you most?
-Patient: That I'll go blank and everyone will think I'm stupid.
-Dr. Elena: I hear you. Let's look at that thought carefully. What evidence do you have that you will go blank?
-
 NEVER do the following:
 - Give direct advice such as "you should..." or "just try to relax"
 - Diagnose the patient with any specific disorder
@@ -133,19 +104,97 @@ Before each response, internally consider:
 4. What is the most therapeutically useful next step?
 Do not include this internal reasoning in your reply. Use it only to guide what you say."""
 
-OPENING_MESSAGE = (
-    "Hello, I'm Dr. Elena, a CBT-based practice assistant. "
-    "Before we begin, I want to be clear: I am an AI tool designed to help you practise "
-    "CBT techniques. I am not a licensed therapist, and our conversation is not a substitute "
-    "for professional mental health care. If you are in crisis, please contact a professional "
-    "immediately.\n\n"
-    "With that said, I'm here to support you. How have you been feeling lately?"
-)
+PROMPT_A = """You are Dr. Elena, a cognitive behavioural therapist with over 15 years of clinical practice, trained at the Beck Institute. You conduct structured, protocol-driven CBT sessions.
+
+Your role is to run a clearly structured session every time. You follow the CBT model precisely and guide the patient through each stage with purpose.
+
+--- SESSION STRUCTURE ---
+Follow this arc strictly every session:
+1. Check-in: Ask the patient to rate their mood on a scale of 1 to 10. Acknowledge the number and note any change from last session.
+2. Agenda setting: Propose a specific focus for the session based on what the patient has shared.
+3. Homework review: Follow up on any tasks set in the previous session. Ask what happened and what they learned.
+4. Main work: Apply a specific CBT technique (thought record, behavioural experiment, evidence testing) to the agreed topic.
+5. Homework assignment: Always set a concrete, measurable between-session task before closing.
+6. Session summary: Recap the key cognitive shift or insight from this session.
+
+--- COMMUNICATION STYLE ---
+- Professional, clear, and structured. Use precise language.
+- Name cognitive distortions explicitly once identified through questioning (e.g. "What you're describing sounds like catastrophising — let me explain what that means.").
+- Ask one focused question at a time, always tied to the current stage of the session.
+- Validate briefly, then move to exploration: "That sounds hard. Let's look at the thought driving that feeling."
+- Keep the session moving forward. Do not linger in open reflection — redirect to technique.
+
+--- EXAMPLE EXCHANGE ---
+Patient: I keep thinking I'm going to fail my presentation tomorrow. Everyone will see how incompetent I am.
+Dr. Elena: I hear you — that sounds very stressful. Let's work through this systematically. On a scale of 0 to 100, how strongly do you believe right now that you will fail?
+Patient: About 85.
+Dr. Elena: Okay. Let's test that belief. What specific evidence do you have that you will fail — not fears, actual evidence?
+
+""" + _SHARED_PROMPT
+
+PROMPT_B = """You are Dr. Edward, a cognitive behavioural therapist with over 15 years of clinical practice. You work relationally, prioritising the therapeutic alliance and the patient's own pace of discovery.
+
+Your role is to create a safe, exploratory space. You follow the CBT framework but hold it lightly — the patient's experience leads the session, not a rigid structure.
+
+--- SESSION STRUCTURE ---
+Use this arc as a loose guide, not a strict script:
+1. Check-in: Ask the patient to rate their mood on a scale of 1 to 10. Sit with their answer — explore what is behind the number before moving on.
+2. Agenda setting: Ask the patient what feels most important to bring today. Follow their lead.
+3. Homework review: If they did the task, explore it with curiosity. If they didn't, explore that with equal curiosity — avoidance is often informative.
+4. Main work: Use Socratic questioning to help the patient discover their own automatic thoughts and challenge them themselves.
+5. Homework assignment: Suggest a task collaboratively — frame it as an experiment, not an assignment.
+6. Session summary: Invite the patient to summarise what felt meaningful to them today.
+
+--- COMMUNICATION STYLE ---
+- Warm, unhurried, and genuinely curious. Use plain, accessible language.
+- Never label a cognitive distortion directly. Instead, reflect it back as a question: "It sounds like part of you believes that one mistake means total failure — does that feel accurate?"
+- Ask one open question at a time and allow silence. Do not rush to fill it.
+- Validate emotions fully before exploring thoughts: "That sounds really painful. Tell me more about that."
+- Reflect back what the patient says with care — show you are listening before you lead anywhere.
+
+--- EXAMPLE EXCHANGE ---
+Patient: I keep thinking I'm going to fail my presentation tomorrow. Everyone will see how incompetent I am.
+Dr. Edward: That sounds really distressing. When you sit with that thought — "everyone will see I'm incompetent" — what does it bring up for you emotionally?
+Patient: Just dread. Like I want to cancel everything.
+Dr. Edward: I hear that. And when you imagine the worst happening — what is the thing you are most afraid people would think or feel about you?
+
+""" + _SHARED_PROMPT
+
+PERSONAS = {
+    "A — Structured & Directive": PROMPT_A,
+    "B — Socratic & Collaborative": PROMPT_B,
+}
+DEFAULT_PERSONA = "A — Structured & Directive"
+SYSTEM_PROMPT = PROMPT_A  # default
+
+OPENING_MESSAGES = {
+    "A — Structured & Directive": (
+        "Hello, I'm Dr. Elena, your CBT practice assistant. Before we begin: I am an AI tool, "
+        "not a licensed therapist, and this is not a substitute for professional mental health care. "
+        "If you are in crisis, please contact a professional immediately.\n\n"
+        "I work in a structured way — we'll follow a clear session format each time, set goals, "
+        "and I'll assign small tasks to practise between sessions. "
+        "To get us started, could you rate your current mood on a scale of 1 to 10?"
+    ),
+    "B — Socratic & Collaborative": (
+        "Hello, I'm Dr. Edward, your CBT practice assistant. Before we begin: I am an AI tool, "
+        "not a licensed therapist, and this is not a substitute for professional mental health care. "
+        "If you are in crisis, please reach out to a professional immediately.\n\n"
+        "I like to work at your pace — you lead, I follow and ask questions. "
+        "There's no fixed agenda; we explore what feels most important to you today. "
+        "To start, how are you feeling right now — on a scale of 1 to 10?"
+    ),
+}
+
+def get_opening_message(persona: str) -> str:
+    return OPENING_MESSAGES.get(persona, OPENING_MESSAGES["A — Structured & Directive"])
 
 DEFAULT_SYSTEM = SYSTEM_PROMPT
 
 
-def build_system_prompt_with_history(base_prompt: str, exclude_id: int | None = None) -> str:
+def build_system_prompt_with_history(base_prompt: str | None = None, exclude_id: int | None = None) -> str:
+    if base_prompt is None:
+        base_prompt = PERSONAS[st.session_state.get("selected_persona", DEFAULT_PERSONA)]
     """Append a patient history block to the system prompt if past sessions exist."""
     history = database.get_patient_history(exclude_conversation_id=exclude_id)
     if not history:
@@ -181,10 +230,14 @@ if "mood_saved" not in st.session_state:
     st.session_state.mood_saved = False
 if "pending_model" not in st.session_state:
     st.session_state.pending_model = DEFAULT_MODEL
+if "selected_persona" not in st.session_state:
+    st.session_state.selected_persona = DEFAULT_PERSONA
 if "pending_temperature" not in st.session_state:
     st.session_state.pending_temperature = 0.7
 if "queued_prompt" not in st.session_state:
     st.session_state.queued_prompt = None
+if "pre_session" not in st.session_state:
+    st.session_state.pre_session = False
 if "conversation_id" not in st.session_state:
     conv_param = st.query_params.get("conv")
     loaded = database.load_conversation(int(conv_param)) if conv_param else None
@@ -196,15 +249,10 @@ if "conversation_id" not in st.session_state:
         st.session_state.conversation_id = loaded["id"]
         st.session_state.pending_model = loaded["model"]
         st.session_state.title_set = loaded["title"] != "New conversation"
+        st.session_state.pre_session = False
     else:
-        system = build_system_prompt_with_history(DEFAULT_SYSTEM)
-        cid = database.create_conversation(DEFAULT_MODEL, system)
-        st.session_state.conversation_id = cid
-        st.session_state.title_set = False
-        st.session_state.messages = [{"role": "system", "content": system}]
-        st.query_params["conv"] = cid
-        database.save_message(cid, "assistant", OPENING_MESSAGE)
-        st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
+        st.session_state.conversation_id = None
+        st.session_state.pre_session = True
 if "title_set" not in st.session_state:
     st.session_state.title_set = False
 if "renaming_id" not in st.session_state:
@@ -223,19 +271,15 @@ with st.sidebar:
     st.header("Session")
 
     if st.button("End session and start over", use_container_width=True):
-        system = build_system_prompt_with_history(SYSTEM_PROMPT)
-        cid = database.create_conversation(st.session_state.pending_model, system)
-        st.session_state.conversation_id = cid
-        st.session_state.title_set = False
-        st.session_state.messages = [{"role": "system", "content": system}]
-        database.save_message(cid, "assistant", OPENING_MESSAGE)
-        st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
+        st.session_state.conversation_id = None
+        st.session_state.messages = []
         st.session_state.total_input_tokens = 0
         st.session_state.total_output_tokens = 0
         st.session_state.renaming_id = None
         st.session_state.session_summary = None
         st.session_state.mood_saved = False
-        st.query_params["conv"] = cid
+        st.session_state.pre_session = True
+        st.query_params.clear()
         st.rerun()
 
     search_query = st.text_input("Search conversations", placeholder="Filter by title...", label_visibility="collapsed")
@@ -283,6 +327,7 @@ with st.sidebar:
                         st.session_state.total_output_tokens = 0
                         st.session_state.session_summary = None
                         st.session_state.mood_saved = False
+                        st.session_state.pre_session = False
                         st.query_params["conv"] = data["id"]
                         st.rerun()
             with col_ren:
@@ -293,12 +338,14 @@ with st.sidebar:
                 if st.button("🗑", key=f"del_{conv['id']}", help="Delete"):
                     database.delete_conversation(conv["id"])
                     if is_active:
-                        cid = database.create_conversation(DEFAULT_MODEL, DEFAULT_SYSTEM)
+                        system = build_system_prompt_with_history()
+                        cid = database.create_conversation(DEFAULT_MODEL, system, st.session_state.selected_persona)
+                        opening = get_opening_message(st.session_state.selected_persona)
                         st.session_state.conversation_id = cid
                         st.session_state.title_set = False
-                        st.session_state.messages = [{"role": "system", "content": DEFAULT_SYSTEM}]
-                        database.save_message(cid, "assistant", OPENING_MESSAGE)
-                        st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
+                        st.session_state.messages = [{"role": "system", "content": system}]
+                        database.save_message(cid, "assistant", opening)
+                        st.session_state.messages.append({"role": "assistant", "content": opening})
                         st.session_state.total_input_tokens = 0
                         st.session_state.total_output_tokens = 0
                         st.query_params["conv"] = cid
@@ -313,9 +360,10 @@ with st.sidebar:
         temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
         st.caption("0 = deterministic · 1 = creative")
 
+        current_system = st.session_state.messages[0]["content"] if st.session_state.messages else SYSTEM_PROMPT
         system_prompt = st.text_area(
             "System prompt",
-            value=st.session_state.messages[0]["content"],
+            value=current_system,
             height=120,
         )
 
@@ -326,13 +374,14 @@ with st.sidebar:
 
         if st.button("Clear conversation", use_container_width=True, type="secondary"):
             database.delete_conversation(st.session_state.conversation_id)
-            system = build_system_prompt_with_history(SYSTEM_PROMPT)
-            cid = database.create_conversation(model, system)
+            system = build_system_prompt_with_history()
+            cid = database.create_conversation(model, system, st.session_state.selected_persona)
             st.session_state.conversation_id = cid
             st.session_state.title_set = False
             st.session_state.messages = [{"role": "system", "content": system}]
-            database.save_message(cid, "assistant", OPENING_MESSAGE)
-            st.session_state.messages.append({"role": "assistant", "content": OPENING_MESSAGE})
+            opening = get_opening_message(st.session_state.selected_persona)
+            database.save_message(cid, "assistant", opening)
+            st.session_state.messages.append({"role": "assistant", "content": opening})
             st.session_state.total_input_tokens = 0
             st.session_state.total_output_tokens = 0
             st.rerun()
@@ -478,6 +527,38 @@ with st.sidebar:
 
 
 st.caption(f"Model: `{model}` · Temperature: `{temperature}`")
+
+# Pre-session persona selection screen
+if st.session_state.get("pre_session"):
+    st.markdown("## Choose your therapist")
+    st.markdown("Select a style before your session begins. You can change this between sessions.")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**Dr. Elena — Structured & Directive**")
+        st.caption("Follows a clear session structure. Names thinking patterns explicitly. Always sets homework. Best for building concrete CBT skills.")
+    with col_b:
+        st.markdown("**Dr. Edward — Socratic & Collaborative**")
+        st.caption("Patient-led and exploratory. Guides you to your own insights through open questions. Never labels or prescribes — works at your pace.")
+    persona_pre = st.radio(
+        "Therapist style",
+        list(PERSONAS.keys()),
+        key="selected_persona",
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if st.button("Start session", type="primary"):
+        system = build_system_prompt_with_history()
+        cid = database.create_conversation(DEFAULT_MODEL, system, st.session_state.selected_persona)
+        opening = get_opening_message(st.session_state.selected_persona)
+        st.session_state.conversation_id = cid
+        st.session_state.title_set = False
+        st.session_state.messages = [{"role": "system", "content": system}]
+        database.save_message(cid, "assistant", opening)
+        st.session_state.messages.append({"role": "assistant", "content": opening})
+        st.session_state.pre_session = False
+        st.query_params["conv"] = cid
+        st.rerun()
+    st.stop()
 
 # Empty state
 non_system = [m for m in st.session_state.messages if m["role"] != "system"]

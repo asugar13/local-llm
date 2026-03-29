@@ -38,22 +38,24 @@ def init_db() -> None:
                 created_at      TEXT    NOT NULL
             );
         """)
-        # Migration: add summary column if it doesn't exist yet
-        try:
-            conn.execute("ALTER TABLE conversations ADD COLUMN summary TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Migrations: add columns if they don't exist yet
+        for col in ["ALTER TABLE conversations ADD COLUMN summary TEXT",
+                    "ALTER TABLE conversations ADD COLUMN persona TEXT"]:
+            try:
+                conn.execute(col)
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
     finally:
         conn.close()
 
 
-def create_conversation(model: str, system_prompt: str) -> int:
+def create_conversation(model: str, system_prompt: str, persona: str = "") -> int:
     conn = _connect()
     try:
         cur = conn.execute(
-            "INSERT INTO conversations (title, model, system_prompt, created_at) VALUES (?, ?, ?, ?)",
-            ("New conversation", model, system_prompt, datetime.utcnow().isoformat()),
+            "INSERT INTO conversations (title, model, system_prompt, persona, created_at) VALUES (?, ?, ?, ?, ?)",
+            ("New conversation", model, system_prompt, persona, datetime.utcnow().isoformat()),
         )
         conn.commit()
         return cur.lastrowid
