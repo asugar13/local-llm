@@ -535,6 +535,8 @@ st.caption(f"Model: `{model}` · Temperature: `{temperature}`")
 if st.session_state.get("pre_session"):
     st.markdown("## Choose your therapist")
     st.markdown("Select a style before your session begins. You can change this between sessions.")
+    st.markdown("")
+
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("**Dr. Elena — Structured & Directive**")
@@ -542,25 +544,30 @@ if st.session_state.get("pre_session"):
     with col_b:
         st.markdown("**Dr. Edward — Socratic & Collaborative**")
         st.caption("Patient-led and exploratory. Guides you to your own insights through open questions. Never labels or prescribes — works at your pace.")
-    persona_pre = st.radio(
+
+    st.radio(
         "Therapist style",
         list(PERSONAS.keys()),
         key="selected_persona",
         horizontal=True,
         label_visibility="collapsed",
     )
-    if st.button("Start session", type="primary"):
-        system = build_system_prompt_with_history()
-        cid = database.create_conversation(DEFAULT_MODEL, system, st.session_state.selected_persona)
-        opening = get_opening_message(st.session_state.selected_persona)
-        st.session_state.conversation_id = cid
-        st.session_state.title_set = False
-        st.session_state.messages = [{"role": "system", "content": system}]
-        database.save_message(cid, "assistant", opening)
-        st.session_state.messages.append({"role": "assistant", "content": opening})
-        st.session_state.pre_session = False
-        st.query_params["conv"] = cid
-        st.rerun()
+
+    st.markdown("")
+    _, col_mid, _ = st.columns([1, 2, 1])
+    with col_mid:
+        if st.button("Start session", type="primary", use_container_width=True):
+            system = build_system_prompt_with_history()
+            cid = database.create_conversation(DEFAULT_MODEL, system, st.session_state.selected_persona)
+            opening = get_opening_message(st.session_state.selected_persona)
+            st.session_state.conversation_id = cid
+            st.session_state.title_set = False
+            st.session_state.messages = [{"role": "system", "content": system}]
+            database.save_message(cid, "assistant", opening)
+            st.session_state.messages.append({"role": "assistant", "content": opening})
+            st.session_state.pre_session = False
+            st.query_params["conv"] = cid
+            st.rerun()
     st.stop()
 
 # Empty state
