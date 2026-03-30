@@ -282,74 +282,75 @@ with st.sidebar:
         st.query_params.clear()
         st.rerun()
 
-    search_query = st.text_input("Search conversations", placeholder="Filter by title...", label_visibility="collapsed")
+    with st.expander("History", expanded=False):
+      search_query = st.text_input("Search conversations", placeholder="Filter by title...", label_visibility="collapsed")
 
-    all_convs = database.list_conversations()
-    filtered_convs = [c for c in all_convs if search_query.lower() in c["title"].lower()] if search_query else all_convs
+      all_convs = database.list_conversations()
+      filtered_convs = [c for c in all_convs if search_query.lower() in c["title"].lower()] if search_query else all_convs
 
-    for conv in filtered_convs:
-        is_active = conv["id"] == st.session_state.conversation_id
-        is_renaming = st.session_state.renaming_id == conv["id"]
+      for conv in filtered_convs:
+          is_active = conv["id"] == st.session_state.conversation_id
+          is_renaming = st.session_state.renaming_id == conv["id"]
 
-        if is_renaming:
-            new_title = st.text_input(
-                "Rename", value=conv["title"], key=f"rename_input_{conv['id']}",
-                label_visibility="collapsed"
-            )
-            col_save, col_cancel = st.columns(2)
-            with col_save:
-                if st.button("Save", key=f"rename_save_{conv['id']}", use_container_width=True):
-                    if new_title.strip():
-                        database.set_conversation_title(conv["id"], new_title.strip())
-                        if is_active:
-                            st.session_state.title_set = True
-                    st.session_state.renaming_id = None
-                    st.rerun()
-            with col_cancel:
-                if st.button("Cancel", key=f"rename_cancel_{conv['id']}", use_container_width=True):
-                    st.session_state.renaming_id = None
-                    st.rerun()
-        else:
-            col_btn, col_ren, col_del = st.columns([5, 1, 1])
-            with col_btn:
-                label = f"**{conv['title']}**" if is_active else conv["title"]
-                if st.button(label, key=f"conv_{conv['id']}", use_container_width=True):
-                    if not is_active:
-                        data = database.load_conversation(conv["id"])
-                        st.session_state.messages = (
-                            [{"role": "system", "content": data["system_prompt"]}]
-                            + data["messages"]
-                        )
-                        st.session_state.conversation_id = data["id"]
-                        st.session_state.pending_model = data["model"]
-                        st.session_state.title_set = True
-                        st.session_state.total_input_tokens = 0
-                        st.session_state.total_output_tokens = 0
-                        st.session_state.session_summary = None
-                        st.session_state.mood_saved = False
-                        st.session_state.pre_session = False
-                        st.query_params["conv"] = data["id"]
-                        st.rerun()
-            with col_ren:
-                if st.button("✏️", key=f"ren_{conv['id']}", help="Rename"):
-                    st.session_state.renaming_id = conv["id"]
-                    st.rerun()
-            with col_del:
-                if st.button("🗑", key=f"del_{conv['id']}", help="Delete"):
-                    database.delete_conversation(conv["id"])
-                    if is_active:
-                        system = build_system_prompt_with_history()
-                        cid = database.create_conversation(DEFAULT_MODEL, system, st.session_state.selected_persona)
-                        opening = get_opening_message(st.session_state.selected_persona)
-                        st.session_state.conversation_id = cid
-                        st.session_state.title_set = False
-                        st.session_state.messages = [{"role": "system", "content": system}]
-                        database.save_message(cid, "assistant", opening)
-                        st.session_state.messages.append({"role": "assistant", "content": opening})
-                        st.session_state.total_input_tokens = 0
-                        st.session_state.total_output_tokens = 0
-                        st.query_params["conv"] = cid
-                    st.rerun()
+          if is_renaming:
+              new_title = st.text_input(
+                  "Rename", value=conv["title"], key=f"rename_input_{conv['id']}",
+                  label_visibility="collapsed"
+              )
+              col_save, col_cancel = st.columns(2)
+              with col_save:
+                  if st.button("Save", key=f"rename_save_{conv['id']}", use_container_width=True):
+                      if new_title.strip():
+                          database.set_conversation_title(conv["id"], new_title.strip())
+                          if is_active:
+                              st.session_state.title_set = True
+                      st.session_state.renaming_id = None
+                      st.rerun()
+              with col_cancel:
+                  if st.button("Cancel", key=f"rename_cancel_{conv['id']}", use_container_width=True):
+                      st.session_state.renaming_id = None
+                      st.rerun()
+          else:
+              col_btn, col_ren, col_del = st.columns([5, 1, 1])
+              with col_btn:
+                  label = f"**{conv['title']}**" if is_active else conv["title"]
+                  if st.button(label, key=f"conv_{conv['id']}", use_container_width=True):
+                      if not is_active:
+                          data = database.load_conversation(conv["id"])
+                          st.session_state.messages = (
+                              [{"role": "system", "content": data["system_prompt"]}]
+                              + data["messages"]
+                          )
+                          st.session_state.conversation_id = data["id"]
+                          st.session_state.pending_model = data["model"]
+                          st.session_state.title_set = True
+                          st.session_state.total_input_tokens = 0
+                          st.session_state.total_output_tokens = 0
+                          st.session_state.session_summary = None
+                          st.session_state.mood_saved = False
+                          st.session_state.pre_session = False
+                          st.query_params["conv"] = data["id"]
+                          st.rerun()
+              with col_ren:
+                  if st.button("✏️", key=f"ren_{conv['id']}", help="Rename"):
+                      st.session_state.renaming_id = conv["id"]
+                      st.rerun()
+              with col_del:
+                  if st.button("🗑", key=f"del_{conv['id']}", help="Delete"):
+                      database.delete_conversation(conv["id"])
+                      if is_active:
+                          system = build_system_prompt_with_history()
+                          cid = database.create_conversation(DEFAULT_MODEL, system, st.session_state.selected_persona)
+                          opening = get_opening_message(st.session_state.selected_persona)
+                          st.session_state.conversation_id = cid
+                          st.session_state.title_set = False
+                          st.session_state.messages = [{"role": "system", "content": system}]
+                          database.save_message(cid, "assistant", opening)
+                          st.session_state.messages.append({"role": "assistant", "content": opening})
+                          st.session_state.total_input_tokens = 0
+                          st.session_state.total_output_tokens = 0
+                          st.query_params["conv"] = cid
+                      st.rerun()
 
     st.divider()
 
@@ -372,6 +373,97 @@ with st.sidebar:
             database.update_conversation_meta(st.session_state.conversation_id, model, system_prompt)
             st.rerun()
 
+
+    st.divider()
+    with st.expander("Therapy tools", expanded=False):
+        non_sys_msgs = [m for m in st.session_state.messages if m["role"] != "system"]
+        has_session = len(non_sys_msgs) > 2
+        if st.button("Generate session summary", use_container_width=True, disabled=not has_session):
+            transcript = "\n\n".join(
+                f"{'Dr. Elena' if m['role'] == 'assistant' else 'Patient'}: {m.get('display', m['content'])}"
+                for m in non_sys_msgs
+            )
+            summary_prompt = [
+                {"role": "user", "content": (
+                    "Below is a transcript of a CBT therapy session between a patient and Dr. Elena.\n\n"
+                    f"{transcript}\n\n"
+                    "Write a structured session summary in the third person, suitable for the patient to read. "
+                    "Refer to the patient as 'the patient' and the therapist as 'Dr. Elena'. "
+                    "Use warm, clear, non-clinical language. "
+                    "Produce a concise summary with exactly these four sections:\n\n"
+                    "MAIN THEMES\n"
+                    "- Bullet points of the key topics the patient brought to the session.\n\n"
+                    "COGNITIVE DISTORTIONS IDENTIFIED\n"
+                    "- Bullet points of any thinking patterns noticed, with a brief example of what the patient expressed.\n\n"
+                    "HOMEWORK ASSIGNED\n"
+                    "- Bullet points of any tasks or exercises Dr. Elena suggested for the patient to try.\n\n"
+                    "KEY INSIGHTS\n"
+                    "- Bullet points of the most important realisations or progress the patient made this session.\n\n"
+                    "If a section has nothing to report, write '- None identified this session.'"
+                )},
+            ]
+            try:
+                with st.spinner("Generating summary..."):
+                    text = ""
+                    for chunk in ollama.chat(
+                        model=st.session_state.pending_model,
+                        messages=summary_prompt,
+                        options={"temperature": 0.3},
+                        stream=True,
+                    ):
+                        text += chunk["message"]["content"]
+                if text.strip():
+                    st.session_state.session_summary = text.strip()
+                    database.save_conversation_summary(st.session_state.conversation_id, text.strip())
+                    st.rerun()
+                else:
+                    st.warning("Model returned an empty summary. Try again.")
+            except Exception as e:
+                st.error(f"Summary generation failed: {e}")
+
+        if st.session_state.get("session_summary"):
+            st.text_area("Summary", value=st.session_state.session_summary, height=200, disabled=True, label_visibility="collapsed")
+            st.download_button(
+                "⬇️ Download summary (.txt)",
+                data=st.session_state.session_summary,
+                file_name="session_summary.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+
+        mood_history = database.get_mood_history()
+        if mood_history:
+            st.caption("Mood history")
+            import pandas as pd
+            import altair as alt
+            df = pd.DataFrame(mood_history)
+            df["session"] = range(1, len(df) + 1)
+            df["date"] = df["created_at"].str[:10]
+            chart = (
+                alt.Chart(df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("session:Q", title="Session", axis=alt.Axis(tickMinStep=1)),
+                    y=alt.Y("rating:Q", title="Mood (1–10)", scale=alt.Scale(domain=[1, 10])),
+                    tooltip=[
+                        alt.Tooltip("session:Q", title="Session"),
+                        alt.Tooltip("rating:Q", title="Mood"),
+                        alt.Tooltip("date:N", title="Date"),
+                    ],
+                )
+                .properties(height=150)
+            )
+            st.altair_chart(chart, use_container_width=True)
+
+    st.divider()
+    with st.expander("Session tools", expanded=False):
+        st.caption("Token usage")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("In", st.session_state.total_input_tokens)
+        col2.metric("Out", st.session_state.total_output_tokens)
+        col3.metric("Total", st.session_state.total_input_tokens + st.session_state.total_output_tokens)
+
+        st.divider()
         if st.button("Clear conversation", use_container_width=True, type="secondary"):
             database.delete_conversation(st.session_state.conversation_id)
             system = build_system_prompt_with_history()
@@ -412,95 +504,6 @@ with st.sidebar:
             use_container_width=True,
         )
         st.radio("Export format", ["JSON", "TXT"], horizontal=True, key="export_format")
-
-    st.divider()
-    non_sys_msgs = [m for m in st.session_state.messages if m["role"] != "system"]
-    has_session = len(non_sys_msgs) > 2
-    if st.button("Generate session summary", use_container_width=True, disabled=not has_session):
-        transcript = "\n\n".join(
-            f"{'Dr. Elena' if m['role'] == 'assistant' else 'Patient'}: {m.get('display', m['content'])}"
-            for m in non_sys_msgs
-        )
-        summary_prompt = [
-            {"role": "user", "content": (
-                "Below is a transcript of a CBT therapy session between a patient and Dr. Elena.\n\n"
-                f"{transcript}\n\n"
-                "Write a structured session summary in the third person, suitable for the patient to read. "
-                "Refer to the patient as 'the patient' and the therapist as 'Dr. Elena'. "
-                "Use warm, clear, non-clinical language. "
-                "Produce a concise summary with exactly these four sections:\n\n"
-                "MAIN THEMES\n"
-                "- Bullet points of the key topics the patient brought to the session.\n\n"
-                "COGNITIVE DISTORTIONS IDENTIFIED\n"
-                "- Bullet points of any thinking patterns noticed, with a brief example of what the patient expressed.\n\n"
-                "HOMEWORK ASSIGNED\n"
-                "- Bullet points of any tasks or exercises Dr. Elena suggested for the patient to try.\n\n"
-                "KEY INSIGHTS\n"
-                "- Bullet points of the most important realisations or progress the patient made this session.\n\n"
-                "If a section has nothing to report, write '- None identified this session.'"
-            )},
-        ]
-
-        try:
-            with st.spinner("Generating summary..."):
-                text = ""
-                for chunk in ollama.chat(
-                    model=st.session_state.pending_model,
-                    messages=summary_prompt,
-                    options={"temperature": 0.3},
-                    stream=True,
-                ):
-                    text += chunk["message"]["content"]
-            if text.strip():
-                st.session_state.session_summary = text.strip()
-                database.save_conversation_summary(st.session_state.conversation_id, text.strip())
-                st.rerun()
-            else:
-                st.warning("Model returned an empty summary. Try again.")
-        except Exception as e:
-            st.error(f"Summary generation failed: {e}")
-
-    if st.session_state.get("session_summary"):
-        st.text_area("Summary", value=st.session_state.session_summary, height=200, disabled=True, label_visibility="collapsed")
-        st.download_button(
-            "⬇️ Download summary (.txt)",
-            data=st.session_state.session_summary,
-            file_name="session_summary.txt",
-            mime="text/plain",
-            use_container_width=True,
-        )
-
-    st.divider()
-    mood_history = database.get_mood_history()
-    if mood_history:
-        st.caption("Mood history")
-        import pandas as pd
-        import altair as alt
-        df = pd.DataFrame(mood_history)
-        df["session"] = range(1, len(df) + 1)
-        df["date"] = df["created_at"].str[:10]
-        chart = (
-            alt.Chart(df)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("session:Q", title="Session", axis=alt.Axis(tickMinStep=1)),
-                y=alt.Y("rating:Q", title="Mood (1–10)", scale=alt.Scale(domain=[1, 10])),
-                tooltip=[
-                    alt.Tooltip("session:Q", title="Session"),
-                    alt.Tooltip("rating:Q", title="Mood"),
-                    alt.Tooltip("date:N", title="Date"),
-                ],
-            )
-            .properties(height=150)
-        )
-        st.altair_chart(chart, use_container_width=True)
-
-    st.divider()
-    st.caption("Token usage")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("In", st.session_state.total_input_tokens)
-    col2.metric("Out", st.session_state.total_output_tokens)
-    col3.metric("Total", st.session_state.total_input_tokens + st.session_state.total_output_tokens)
 
     st.divider()
     st.caption("Voice input")
