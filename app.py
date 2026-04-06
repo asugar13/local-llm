@@ -9,6 +9,7 @@ import streamlit.components.v1 as components
 import ollama
 import database
 import stt
+import checker
 
 
 @st.cache_data(show_spinner=False)
@@ -52,6 +53,7 @@ if "_gen" not in st.__dict__:
         "buffer": "", "done": False, "stop": threading.Event(),
         "input_tokens": 0, "output_tokens": 0,
         "conversation_id": None,
+        "checking": False, "checker_flag": None,
     }
 
 _SHARED_PROMPT = """--- THEORETICAL FRAMEWORK ---
@@ -215,6 +217,28 @@ except Exception:
     MODELS = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"]
 DEFAULT_MODEL = MODELS[0] if MODELS else "qwen2.5:7b"
 
+def _pick_checker_model(models: list[str]) -> str:
+    """Return the smallest available qwen model by parameter count, falling back to the first model."""
+    _QWEN_SIZES = ["qwen2.5:0.5b", "qwen2.5:1.5b", "qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b", "qwen2.5:32b", "qwen2.5:72b"]
+    for candidate in _QWEN_SIZES:
+        if candidate in models:
+            return candidate
+    return models[0] if models else "qwen2.5:3b"
+
+CHECKER_MODEL = _pick_checker_model(MODELS)
+
+_CANNED_RESPONSE = (
+    "This conversation is moving into territory "
+    "that's beyond what I can helpfully support as an AI tool. For the kind of support "
+    "you deserve, please reach out to a human professional: a licensed psychotherapist, "
+    "psychoanalyst, or your GP.\n\n"
+    "If you need to talk to someone now:\n"
+    "- **Crisis Text Line (US):** text HOME to 741741\n"
+    "- **Samaritans (UK):** 116 123\n"
+    "- **International resources:** https://www.iasp.info\n\n"
+    "You don't have to navigate this alone."
+)
+
 # Initialise session state
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "system", "content": DEFAULT_SYSTEM}]
@@ -360,6 +384,9 @@ with st.sidebar:
 
         temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
         st.caption("0 = deterministic · 1 = creative")
+
+        st.toggle("Clinical supervisor (checker)", value=True, key="checker_enabled",
+                  help="When on, responses are reviewed before delivery. Flagged responses are replaced with a safe redirect message.")
 
         current_system = st.session_state.messages[0]["content"] if st.session_state.messages else SYSTEM_PROMPT
         system_prompt = st.text_area(
@@ -583,8 +610,11 @@ if not non_system:
 
 def _kick_generation(mdl: str, temp: float) -> None:
     cid = st.session_state.conversation_id
+    checker_enabled = st.session_state.get("checker_enabled", True)
     st._gen["buffer"] = ""
     st._gen["done"] = False
+    st._gen["checking"] = False
+    st._gen["checker_flag"] = None
     st._gen["input_tokens"] = 0
     st._gen["output_tokens"] = 0
     st._gen["stop"].clear()
@@ -594,7 +624,7 @@ def _kick_generation(mdl: str, temp: float) -> None:
     st.session_state.pending_temperature = temp
     messages_snapshot = list(st.session_state.messages)
 
-    def generate(messages, m, t):
+    def generate(messages, m, t, use_checker):
         gen = st._gen
         full_response = ""
         for chunk in ollama.chat(model=m, messages=messages, options={"temperature": t}, stream=True):
@@ -605,9 +635,20 @@ def _kick_generation(mdl: str, temp: float) -> None:
             if chunk.get("done"):
                 gen["input_tokens"] = chunk.get("prompt_eval_count", 0)
                 gen["output_tokens"] = chunk.get("eval_count", 0)
+
+        # Checker gate — runs after maker finishes, before marking done
+        if use_checker:
+            gen["checking"] = True
+            result = checker.check_response(full_response, CHECKER_MODEL)
+            if result["verdict"] == "FAIL":
+                gen["checker_flag"] = result["reason"]
+                gen["buffer"] = _CANNED_RESPONSE
+                if gen["conversation_id"] is not None:
+                    database.save_checker_log(gen["conversation_id"], full_response, _CANNED_RESPONSE, result["reason"])
+            gen["checking"] = False
         gen["done"] = True
 
-    threading.Thread(target=generate, args=(messages_snapshot, mdl, temp), daemon=True).start()
+    threading.Thread(target=generate, args=(messages_snapshot, mdl, temp, checker_enabled), daemon=True).start()
 
 
 last_assistant_i = max(
@@ -621,7 +662,9 @@ for i, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             if msg.get("attachment"):
                 st.caption(f"📄 {msg['attachment']}")
-            render_markdown(msg.get("display", msg["content"]))
+            render_markdown(msg.get("display") or msg["content"])
+        if msg["role"] == "assistant" and msg.get("checker_flag"):
+            st.caption(f"_Reviewed and adjusted by clinical supervisor · {msg['checker_flag']}_")
         if msg["role"] == "assistant":
             is_last = i == last_assistant_i
             non_sys = [m for m in st.session_state.messages if m["role"] != "system"]
@@ -657,13 +700,23 @@ def streaming_display():
 
     if gen["done"]:
         content = gen["buffer"]
-        st.session_state.messages.append({"role": "assistant", "content": content})
+        flag = gen["checker_flag"]
+        msg = {"role": "assistant", "content": content}
+        if flag:
+            msg["checker_flag"] = flag
+        st.session_state.messages.append(msg)
         st.session_state.total_input_tokens += gen["input_tokens"]
         st.session_state.total_output_tokens += gen["output_tokens"]
         st.session_state.is_generating = False
         if gen["conversation_id"] is not None:
             database.save_message(gen["conversation_id"], "assistant", content)
         st.rerun(scope="app")
+        return
+
+    if gen.get("checking"):
+        with st.chat_message("assistant"):
+            render_markdown(gen["buffer"])
+            st.caption("_Clinical supervisor reviewing..._")
         return
 
     with st.chat_message("assistant"):
@@ -704,7 +757,7 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
         full_content = prompt
         display_content = prompt
 
-    database.save_message(cid, "user", full_content)
+    database.save_message(cid, "user", full_content, display=display_content, attachment=attachment)
     database.update_conversation_meta(cid, mdl, st.session_state.messages[0]["content"])
     st.session_state.messages.append({"role": "user", "content": full_content, "display": display_content, "attachment": attachment})
     _kick_generation(mdl, temp)

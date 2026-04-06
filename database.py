@@ -37,10 +37,21 @@ def init_db() -> None:
                 rating          INTEGER NOT NULL,
                 created_at      TEXT    NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS checker_logs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL
+                                REFERENCES conversations(id) ON DELETE CASCADE,
+                original        TEXT    NOT NULL,
+                rewritten       TEXT    NOT NULL,
+                reason          TEXT    NOT NULL,
+                created_at      TEXT    NOT NULL
+            );
         """)
         # Migrations: add columns if they don't exist yet
         for col in ["ALTER TABLE conversations ADD COLUMN summary TEXT",
-                    "ALTER TABLE conversations ADD COLUMN persona TEXT"]:
+                    "ALTER TABLE conversations ADD COLUMN persona TEXT",
+                    "ALTER TABLE messages ADD COLUMN display TEXT",
+                    "ALTER TABLE messages ADD COLUMN attachment TEXT"]:
             try:
                 conn.execute(col)
                 conn.commit()
@@ -88,12 +99,14 @@ def update_conversation_meta(conversation_id: int, model: str, system_prompt: st
         conn.close()
 
 
-def save_message(conversation_id: int, role: str, content: str) -> int:
+def save_message(conversation_id: int, role: str, content: str,
+                 display: str | None = None, attachment: str | None = None) -> int:
     conn = _connect()
     try:
         cur = conn.execute(
-            "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (conversation_id, role, content, datetime.utcnow().isoformat()),
+            "INSERT INTO messages (conversation_id, role, content, display, attachment, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (conversation_id, role, content, display, attachment, datetime.utcnow().isoformat()),
         )
         conn.commit()
         return cur.lastrowid
@@ -125,7 +138,8 @@ def load_conversation(conversation_id: int) -> dict | None:
         if conv is None:
             return None
         msgs = conn.execute(
-            "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
+            "SELECT role, content, display, attachment FROM messages "
+            "WHERE conversation_id = ? ORDER BY created_at ASC",
             (conversation_id,),
         ).fetchall()
         result = dict(conv)
@@ -142,8 +156,10 @@ def replace_messages(conversation_id: int, messages: list) -> None:
         conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
         for msg in messages:
             conn.execute(
-                "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-                (conversation_id, msg["role"], msg["content"], datetime.utcnow().isoformat()),
+                "INSERT INTO messages (conversation_id, role, content, display, attachment, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (conversation_id, msg["role"], msg["content"],
+                 msg.get("display"), msg.get("attachment"), datetime.utcnow().isoformat()),
             )
         conn.commit()
     finally:
@@ -196,6 +212,36 @@ def get_patient_history(exclude_conversation_id: int | None = None) -> list:
             "ORDER BY c.created_at DESC LIMIT 10",
             (exclude_conversation_id, exclude_conversation_id),
         ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def save_checker_log(conversation_id: int, original: str, rewritten: str, reason: str) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            "INSERT INTO checker_logs (conversation_id, original, rewritten, reason, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (conversation_id, original, rewritten, reason, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_checker_logs(conversation_id: int | None = None) -> list:
+    conn = _connect()
+    try:
+        if conversation_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM checker_logs WHERE conversation_id = ? ORDER BY created_at ASC",
+                (conversation_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM checker_logs ORDER BY created_at DESC LIMIT 50"
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
