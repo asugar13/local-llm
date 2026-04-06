@@ -10,6 +10,7 @@ import ollama
 import database
 import stt
 import checker
+import tts
 
 
 @st.cache_data(show_spinner=False)
@@ -55,6 +56,8 @@ if "_gen" not in st.__dict__:
         "conversation_id": None,
         "checking": False, "checker_flag": None,
     }
+if "_tts" not in st.__dict__:
+    st._tts = {"playing": False}
 
 _SHARED_PROMPT = """--- THEORETICAL FRAMEWORK ---
 You work within the cognitive model: situations trigger automatic thoughts, which produce emotions and behaviours. Your primary goal is to help the patient identify automatic thoughts, examine the evidence for and against them, recognise cognitive distortions, and develop more balanced alternatives.
@@ -388,6 +391,9 @@ with st.sidebar:
         st.toggle("Clinical supervisor (checker)", value=True, key="checker_enabled",
                   help="When on, responses are reviewed before delivery. Flagged responses are replaced with a safe redirect message.")
 
+        st.toggle("Voice output", value=False, key="tts_enabled",
+                  help="Dr. Elena/Edward will speak each response aloud using macOS Samantha voice.")
+
         current_system = st.session_state.messages[0]["content"] if st.session_state.messages else SYSTEM_PROMPT
         system_prompt = st.text_area(
             "System prompt",
@@ -693,7 +699,18 @@ for i, msg in enumerate(st.session_state.messages):
 # Fragment always defined for consistent run_every lifecycle
 @st.fragment(run_every=0.1)
 def streaming_display():
-    if not st.session_state.get("is_generating", False):
+    is_generating = st.session_state.get("is_generating", False)
+    is_speaking = st._tts.get("playing", False)
+
+    if not is_generating and not is_speaking:
+        return
+
+    # TTS-only state: generation done, speech playing
+    if not is_generating and is_speaking:
+        st.caption("🔊 _Speaking..._")
+        if st.button("⬛ Stop speaking"):
+            tts.stop()
+            st._tts["playing"] = False
         return
 
     gen = st._gen
@@ -710,6 +727,13 @@ def streaming_display():
         st.session_state.is_generating = False
         if gen["conversation_id"] is not None:
             database.save_message(gen["conversation_id"], "assistant", content)
+        # Start TTS in background thread if enabled
+        if st.session_state.get("tts_enabled", False) and content:
+            st._tts["playing"] = True
+            def _speak(text):
+                tts.speak(text)
+                st._tts["playing"] = False
+            threading.Thread(target=_speak, args=(content,), daemon=True).start()
         st.rerun(scope="app")
         return
 
