@@ -218,7 +218,8 @@ try:
     MODELS = sorted([m.model for m in ollama.list().models])
 except Exception:
     MODELS = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"]
-DEFAULT_MODEL = MODELS[0] if MODELS else "qwen2.5:7b"
+_QWEN_SIZES = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b", "qwen2.5:32b", "qwen2.5:72b"]
+DEFAULT_MODEL = next((m for m in _QWEN_SIZES if m in MODELS), MODELS[0] if MODELS else "qwen2.5:3b")
 
 def _pick_checker_model(models: list[str]) -> str:
     """Return the smallest available qwen model by parameter count, falling back to the first model."""
