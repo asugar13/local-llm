@@ -1,7 +1,9 @@
 import io
 import json
+import os
 import re
 import subprocess
+import tempfile
 import threading
 import base64
 import streamlit as st
@@ -166,33 +168,33 @@ Dr. Edward: I hear that. And when you imagine the worst happening — what is th
 """ + _SHARED_PROMPT
 
 PERSONAS = {
-    "A — Structured & Directive": PROMPT_A,
-    "B — Socratic & Collaborative": PROMPT_B,
+    "Dr. Elena": PROMPT_A,
+    "Dr. Edward": PROMPT_B,
 }
-DEFAULT_PERSONA = "A — Structured & Directive"
+DEFAULT_PERSONA = "Dr. Elena"
 SYSTEM_PROMPT = PROMPT_A  # default
 
 OPENING_MESSAGES = {
-    "A — Structured & Directive": (
+    "Dr. Elena": (
         "Hello, I'm Dr. Elena, your CBT practice assistant. Before we begin: I am an AI tool, "
         "not a licensed therapist, and this is not a substitute for professional mental health care. "
         "If you are in crisis, please contact a professional immediately.\n\n"
-        "I work in a structured way — we'll follow a clear session format each time, set goals, "
+        "I work in a structured way - we'll follow a clear session format each time, set goals, "
         "and I'll assign small tasks to practise between sessions. "
         "To get us started, could you rate your current mood on a scale of 1 to 10?"
     ),
-    "B — Socratic & Collaborative": (
+    "Dr. Edward": (
         "Hello, I'm Dr. Edward, your CBT practice assistant. Before we begin: I am an AI tool, "
         "not a licensed therapist, and this is not a substitute for professional mental health care. "
         "If you are in crisis, please reach out to a professional immediately.\n\n"
-        "I like to work at your pace — you lead, I follow and ask questions. "
+        "I like to work at your pace - you lead, I follow and ask questions. "
         "There's no fixed agenda; we explore what feels most important to you today. "
-        "To start, how are you feeling right now — on a scale of 1 to 10?"
+        "To start, how are you feeling right now - on a scale of 1 to 10?"
     ),
 }
 
 def get_opening_message(persona: str) -> str:
-    return OPENING_MESSAGES.get(persona, OPENING_MESSAGES["A — Structured & Directive"])
+    return OPENING_MESSAGES.get(persona, OPENING_MESSAGES["Dr. Elena"])
 
 DEFAULT_SYSTEM = SYSTEM_PROMPT
 
@@ -208,7 +210,7 @@ def build_system_prompt_with_history(base_prompt: str | None = None, exclude_id:
              "The following are summaries of this patient's previous sessions. "
              "Use them to personalise today's session and maintain continuity.\n"]
     for i, s in enumerate(sorted(history, key=lambda x: x["created_at"]), 1):
-        mood = f" — Mood: {s['rating']}/10" if s["rating"] else ""
+        mood = f" - Mood: {s['rating']}/10" if s["rating"] else ""
         date = s["created_at"][:10]
         lines.append(f"Session {i} ({date}){mood}")
         lines.append(s["summary"])
@@ -223,11 +225,11 @@ _QWEN_PREFERRED = ["qwen2.5:7b", "qwen2.5:3b", "qwen2.5:14b", "qwen2.5:32b", "qw
 DEFAULT_MODEL = next((m for m in _QWEN_PREFERRED if m in MODELS), MODELS[0] if MODELS else "qwen2.5:7b")
 
 _MODEL_LABELS = {
-    "qwen2.5:3b":  "qwen2.5:3b  — fastest, lighter quality",
-    "qwen2.5:7b":  "qwen2.5:7b  — recommended, good balance",
-    "qwen2.5:14b": "qwen2.5:14b — slower, better reasoning",
-    "qwen2.5:32b": "qwen2.5:32b — slow, high quality",
-    "qwen2.5:72b": "qwen2.5:72b — slowest, best quality",
+    "qwen2.5:3b":  "qwen2.5:3b - fastest, lighter quality",
+    "qwen2.5:7b":  "qwen2.5:7b - recommended, good balance",
+    "qwen2.5:14b": "qwen2.5:14b - slower, better reasoning",
+    "qwen2.5:32b": "qwen2.5:32b - slow, high quality",
+    "qwen2.5:72b": "qwen2.5:72b - slowest, best quality",
 }
 
 def _pick_checker_model(models: list[str]) -> str:
@@ -403,10 +405,10 @@ with st.sidebar:
         temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
         st.caption("0 = deterministic · 1 = creative")
 
-        st.toggle("Clinical supervisor (checker)", value=True, key="checker_enabled",
+        st.toggle("Clinical supervisor (checker)", value=False, key="checker_enabled",
                   help="When on, responses are reviewed before delivery. Flagged responses are replaced with a safe redirect message.")
 
-        st.toggle("Voice output", value=False, key="tts_enabled",
+        st.toggle("Voice output", value=True, key="tts_enabled",
                   help="Dr. Elena/Edward will speak each response aloud.")
 
         if st.session_state.get("tts_enabled", False):
@@ -416,6 +418,26 @@ with st.sidebar:
                 format_func=lambda k: tts.BACKENDS[k],
                 key="tts_backend",
             )
+            if st.session_state.get("tts_backend") == "coqui":
+                st.selectbox(
+                    "Language",
+                    options=list(tts._XTTS_LANGUAGES.keys()),
+                    format_func=lambda k: tts._XTTS_LANGUAGES[k],
+                    key="tts_language",
+                )
+                ref_file = st.file_uploader(
+                    "Voice reference (optional WAV for cloning)",
+                    type=["wav"],
+                    key="tts_speaker_wav_upload",
+                )
+                if ref_file is not None:
+                    ref_path = os.path.join(tempfile.gettempdir(), "xtts_ref.wav")
+                    with open(ref_path, "wb") as f:
+                        f.write(ref_file.read())
+                    st.session_state.tts_speaker_wav = ref_path
+                    st.caption(f"Reference voice loaded: {ref_file.name}")
+                elif "tts_speaker_wav" not in st.session_state:
+                    st.session_state.tts_speaker_wav = None
 
         current_system = st.session_state.messages[0]["content"] if st.session_state.messages else SYSTEM_PROMPT
         system_prompt = st.text_area(
@@ -595,11 +617,11 @@ if st.session_state.get("pre_session"):
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown("**Dr. Elena — Structured & Directive**")
+        st.markdown("**Dr. Elena - Structured & Directive**")
         st.caption("Follows a clear session structure. Names thinking patterns explicitly. Always sets homework. Best for building concrete CBT skills.")
     with col_b:
-        st.markdown("**Dr. Edward — Socratic & Collaborative**")
-        st.caption("Patient-led and exploratory. Guides you to your own insights through open questions. Never labels or prescribes — works at your pace.")
+        st.markdown("**Dr. Edward - Socratic & Collaborative**")
+        st.caption("Patient-led and exploratory. Guides you to your own insights through open questions. Never labels or prescribes - works at your pace.")
 
     st.radio(
         "Therapist style",
@@ -639,7 +661,7 @@ if not non_system:
 
 def _kick_generation(mdl: str, temp: float) -> None:
     cid = st.session_state.conversation_id
-    checker_enabled = st.session_state.get("checker_enabled", True)
+    checker_enabled = st.session_state.get("checker_enabled", False)
     st._gen["buffer"] = ""
     st._gen["done"] = False
     st._gen["checking"] = False
@@ -751,16 +773,19 @@ def streaming_display():
         if gen["conversation_id"] is not None:
             database.save_message(gen["conversation_id"], "assistant", content)
         # Start TTS in background thread if enabled
-        if st.session_state.get("tts_enabled", False) and content:
+        if st.session_state.get("tts_enabled", True) and content:
             st._tts["playing"] = True
             backend = st.session_state.get("tts_backend", "macos")
-            def _speak(text, b):
+            language = st.session_state.get("tts_language", "en")
+            speaker_wav = st.session_state.get("tts_speaker_wav", None)
+            def _speak(text, b, lang, wav):
                 try:
-                    tts.speak(text, backend=b)
-                except RuntimeError:
-                    tts.speak(text, backend="macos")  # fallback if Coqui not installed
+                    tts.speak(text, backend=b, language=lang, speaker_wav=wav)
+                except Exception as exc:
+                    print(f"[TTS error] {exc}")
+                    tts.speak(text, backend="macos")  # fallback
                 st._tts["playing"] = False
-            threading.Thread(target=_speak, args=(content, backend), daemon=True).start()
+            threading.Thread(target=_speak, args=(content, backend, language, speaker_wav), daemon=True).start()
         st.rerun(scope="app")
         return
 
@@ -817,7 +842,7 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
 
 # File uploader — shown above input
 uploaded_file = st.file_uploader(
-    "📎 Attach a file — PDF, DOCX, TXT, MD, CSV",
+    "📎 Attach a file - PDF, DOCX, TXT, MD, CSV",
     type=["pdf", "docx", "txt", "md", "csv"],
     key=f"file_uploader_{st.session_state.uploader_key}",
     label_visibility="collapsed",
