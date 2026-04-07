@@ -392,7 +392,15 @@ with st.sidebar:
                   help="When on, responses are reviewed before delivery. Flagged responses are replaced with a safe redirect message.")
 
         st.toggle("Voice output", value=False, key="tts_enabled",
-                  help="Dr. Elena/Edward will speak each response aloud using macOS Samantha voice.")
+                  help="Dr. Elena/Edward will speak each response aloud.")
+
+        if st.session_state.get("tts_enabled", False):
+            st.selectbox(
+                "Voice engine",
+                options=list(tts.BACKENDS.keys()),
+                format_func=lambda k: tts.BACKENDS[k],
+                key="tts_backend",
+            )
 
         current_system = st.session_state.messages[0]["content"] if st.session_state.messages else SYSTEM_PROMPT
         system_prompt = st.text_area(
@@ -730,10 +738,14 @@ def streaming_display():
         # Start TTS in background thread if enabled
         if st.session_state.get("tts_enabled", False) and content:
             st._tts["playing"] = True
-            def _speak(text):
-                tts.speak(text)
+            backend = st.session_state.get("tts_backend", "macos")
+            def _speak(text, b):
+                try:
+                    tts.speak(text, backend=b)
+                except RuntimeError:
+                    tts.speak(text, backend="macos")  # fallback if Coqui not installed
                 st._tts["playing"] = False
-            threading.Thread(target=_speak, args=(content,), daemon=True).start()
+            threading.Thread(target=_speak, args=(content, backend), daemon=True).start()
         st.rerun(scope="app")
         return
 
