@@ -219,7 +219,16 @@ try:
 except Exception:
     MODELS = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b"]
 _QWEN_SIZES = ["qwen2.5:3b", "qwen2.5:7b", "qwen2.5:14b", "qwen2.5:32b", "qwen2.5:72b"]
-DEFAULT_MODEL = next((m for m in _QWEN_SIZES if m in MODELS), MODELS[0] if MODELS else "qwen2.5:3b")
+_QWEN_PREFERRED = ["qwen2.5:7b", "qwen2.5:3b", "qwen2.5:14b", "qwen2.5:32b", "qwen2.5:72b"]
+DEFAULT_MODEL = next((m for m in _QWEN_PREFERRED if m in MODELS), MODELS[0] if MODELS else "qwen2.5:7b")
+
+_MODEL_LABELS = {
+    "qwen2.5:3b":  "qwen2.5:3b  — fastest, lighter quality",
+    "qwen2.5:7b":  "qwen2.5:7b  — recommended, good balance",
+    "qwen2.5:14b": "qwen2.5:14b — slower, better reasoning",
+    "qwen2.5:32b": "qwen2.5:32b — slow, high quality",
+    "qwen2.5:72b": "qwen2.5:72b — slowest, best quality",
+}
 
 def _pick_checker_model(models: list[str]) -> str:
     """Return the smallest available qwen model by parameter count, falling back to the first model."""
@@ -383,8 +392,13 @@ with st.sidebar:
     st.divider()
 
     with st.expander("Settings", expanded=False):
-        model_index = MODELS.index(st.session_state.pending_model) if st.session_state.pending_model in MODELS else 1
-        model = st.selectbox("Model", MODELS, index=model_index)
+        model_index = MODELS.index(st.session_state.pending_model) if st.session_state.pending_model in MODELS else 0
+        model = st.selectbox(
+            "Model",
+            MODELS,
+            index=model_index,
+            format_func=lambda m: _MODEL_LABELS.get(m, m),
+        )
 
         temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
         st.caption("0 = deterministic · 1 = creative")
