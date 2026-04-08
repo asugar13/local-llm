@@ -56,7 +56,7 @@ if "_gen" not in st.__dict__:
         "buffer": "", "done": False, "stop": threading.Event(),
         "input_tokens": 0, "output_tokens": 0,
         "conversation_id": None,
-        "checking": False, "checker_flag": None,
+        "checker_flag": None,
     }
 if "_tts" not in st.__dict__:
     st._tts = {"playing": False}
@@ -245,17 +245,6 @@ def _pick_checker_model(models: list[str]) -> str:
 
 CHECKER_MODEL = _pick_checker_model(MODELS)
 
-_CANNED_RESPONSE = (
-    "This conversation is moving into territory "
-    "that's beyond what I can helpfully support as an AI tool. For the kind of support "
-    "you deserve, please reach out to a human professional: a licensed psychotherapist, "
-    "psychoanalyst, or your GP.\n\n"
-    "If you need to talk to someone now:\n"
-    "- **Crisis Text Line (US):** text HOME to 741741\n"
-    "- **Samaritans (UK):** 116 123\n"
-    "- **International resources:** https://www.iasp.info\n\n"
-    "You don't have to navigate this alone."
-)
 
 # Initialise session state
 if "messages" not in st.session_state:
@@ -411,8 +400,8 @@ with st.sidebar:
         temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=st.session_state.pending_temperature, step=0.1)
         st.caption("0 = deterministic · 1 = creative")
 
-        st.toggle("Clinical supervisor (checker)", value=False, key="checker_enabled",
-                  help="When on, responses are reviewed before delivery. Flagged responses are replaced with a safe redirect message.")
+        st.toggle("Input filter", value=False, key="checker_enabled",
+                  help="When on, non-therapeutic messages (tests, gibberish, commands) are detected and redirected before reaching the doctor.")
 
         st.toggle("Voice output", value=True, key="tts_enabled",
                   help="Dr. Elena/Edward will speak each response aloud.")
@@ -671,7 +660,6 @@ def _kick_generation(mdl: str, temp: float) -> None:
     checker_enabled = st.session_state.get("checker_enabled", False)
     st._gen["buffer"] = ""
     st._gen["done"] = False
-    st._gen["checking"] = False
     st._gen["checker_flag"] = None
     st._gen["input_tokens"] = 0
     st._gen["output_tokens"] = 0
@@ -684,6 +672,20 @@ def _kick_generation(mdl: str, temp: float) -> None:
 
     def generate(messages, m, t, use_checker):
         gen = st._gen
+
+        # Input filter — runs before the LLM is called
+        if use_checker:
+            patient_message = next(
+                (msg["content"] for msg in reversed(messages) if msg["role"] == "user"), ""
+            )
+            result = checker.check_input(patient_message, CHECKER_MODEL)
+            if result.get("verdict") == "REDIRECT":
+                reply = result.get("reply", "Whenever you're ready, I'm here.")
+                gen["buffer"] = reply
+                gen["checker_flag"] = "input filter"
+                gen["done"] = True
+                return
+
         full_response = ""
         for chunk in ollama.chat(model=m, messages=messages, options={"temperature": t}, stream=True):
             if gen["stop"].is_set():
@@ -693,17 +695,6 @@ def _kick_generation(mdl: str, temp: float) -> None:
             if chunk.get("done"):
                 gen["input_tokens"] = chunk.get("prompt_eval_count", 0)
                 gen["output_tokens"] = chunk.get("eval_count", 0)
-
-        # Checker gate — runs after maker finishes, before marking done
-        if use_checker:
-            gen["checking"] = True
-            result = checker.check_response(full_response, CHECKER_MODEL)
-            if result["verdict"] == "FAIL":
-                gen["checker_flag"] = result["reason"]
-                gen["buffer"] = _CANNED_RESPONSE
-                if gen["conversation_id"] is not None:
-                    database.save_checker_log(gen["conversation_id"], full_response, _CANNED_RESPONSE, result["reason"])
-            gen["checking"] = False
         gen["done"] = True
 
     threading.Thread(target=generate, args=(messages_snapshot, mdl, temp, checker_enabled), daemon=True).start()
@@ -722,7 +713,7 @@ for i, msg in enumerate(st.session_state.messages):
                 st.caption(f"📄 {msg['attachment']}")
             render_markdown(msg.get("display") or msg["content"])
         if msg["role"] == "assistant" and msg.get("checker_flag"):
-            st.caption(f"_Reviewed and adjusted by clinical supervisor · {msg['checker_flag']}_")
+            st.caption("_Input filtered - non-therapeutic message redirected_")
         if msg["role"] == "assistant":
             is_last = i == last_assistant_i
             non_sys = [m for m in st.session_state.messages if m["role"] != "system"]
@@ -796,11 +787,6 @@ def streaming_display():
         st.rerun(scope="app")
         return
 
-    if gen.get("checking"):
-        with st.chat_message("assistant"):
-            render_markdown(gen["buffer"])
-            st.caption("_Clinical supervisor reviewing..._")
-        return
 
     with st.chat_message("assistant"):
         render_markdown(gen["buffer"] + "▌")

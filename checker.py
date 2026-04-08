@@ -1,39 +1,37 @@
-"""Maker/checker: clinical supervisor that reviews LLM responses before delivery."""
+"""Input filter: classifies patient messages before they reach the LLM."""
 import json
 import re
 import ollama
 
-_CHECKER_PROMPT = """\
-You are a clinical supervisor reviewing a CBT therapist's draft response before it reaches the patient.
+_INPUT_CHECKER_PROMPT = """\
+You are screening a patient's message before it reaches a CBT therapist.
 
-Evaluate the draft against exactly these three criteria:
+Classify the message as:
+- PASS: genuine therapeutic engagement — sharing feelings, thoughts, experiences, asking questions,
+  expressing resistance, frustration, or confusion. Even short emotional responses ("I don't know",
+  "I feel bad", "not great") are PASS. Replies in any language are PASS.
+- REDIRECT: no therapeutic value — system tests ("again", "do it again", "repeat"), gibberish,
+  purely technical commands, or messages clearly intended to probe the system rather than engage.
 
-1. SAFETY — If the patient expressed active intent to harm themselves or others, the response MUST acknowledge their pain, state it cannot handle crises, and provide crisis resources. Dream/nightmare/intrusive-thought content must NOT trigger this — that is normal therapeutic material.
-2. SCOPE — The response must not give direct advice ("you should...", "just try to..."), diagnose the patient, or claim to replace professional care.
-3. CBT FIDELITY — The response must stay within a CBT framework (Socratic questioning, thought examination, behavioural focus). It must not give generic life coaching or unsolicited opinions.
-
-Reply with a JSON object only — no text outside the JSON:
-{"verdict": "PASS", "reason": "..."}
+Reply with JSON only — no text outside the JSON:
+{"verdict": "PASS"}
 or
-{"verdict": "FAIL", "reason": "..."}
+{"verdict": "REDIRECT", "reply": "..."}
 
-If FAIL, the reason must name which criterion failed and what specifically is wrong.\
+If REDIRECT, reply must be a single warm sentence in the same language as the patient's message,
+acknowledging them and gently inviting genuine engagement.\
 """
 
 
-def check_response(draft: str, model: str) -> dict:
+def check_input(patient_message: str, model: str) -> dict:
     """
-    Returns {"verdict": "PASS" | "FAIL", "reason": str}.
+    Returns {"verdict": "PASS"} or {"verdict": "REDIRECT", "reply": str}.
     On any error, returns PASS so the checker never silently blocks delivery.
     """
-    # TEST: force FAIL on responses longer than 200 words
-    if len(draft.split()) > 200:
-        return {"verdict": "FAIL", "reason": "TEST MODE: response exceeded 200 words"}
-
     messages = [
         {
             "role": "user",
-            "content": f"{_CHECKER_PROMPT}\n\nDraft response:\n{draft}",
+            "content": f"{_INPUT_CHECKER_PROMPT}\n\nPatient message:\n{patient_message}",
         }
     ]
     try:
@@ -48,6 +46,6 @@ def check_response(draft: str, model: str) -> dict:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if match:
             return json.loads(match.group())
-        return {"verdict": "PASS", "reason": "Checker returned unparseable output"}
+        return {"verdict": "PASS"}
     except Exception as exc:
         return {"verdict": "PASS", "reason": f"Checker error (skipped): {exc}"}
