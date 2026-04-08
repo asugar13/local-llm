@@ -3,8 +3,16 @@ import numpy as np
 import sounddevice as sd
 import whisper
 
-# Load once at startup; keep in memory between turns.
-_model = whisper.load_model("base")
+_model = None  # lazy-loaded on first transcription
+
+
+def _get_model():
+    global _model
+    if _model is None:
+        import torch
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        _model = whisper.load_model("large-v3", device=device)
+    return _model
 
 # Module-level stream state (persists across Streamlit reruns in the same process)
 _buffer: list[np.ndarray] = []
@@ -38,12 +46,9 @@ def stop_recording() -> np.ndarray:
     return np.concatenate(_buffer) if _buffer else np.array([], dtype="float32")
 
 
-def transcribe(audio: np.ndarray) -> str:
+def transcribe(audio: np.ndarray, language: str = "en") -> str:
     """Transcribe a float32 numpy array directly — no ffmpeg required."""
     if len(audio) == 0:
         return ""
-    audio = whisper.pad_or_trim(audio)
-    mel = whisper.log_mel_spectrogram(audio, n_mels=_model.dims.n_mels).to(_model.device)
-    options = whisper.DecodingOptions(fp16=False)
-    result = whisper.decode(_model, mel, options)
-    return result.text.strip()
+    result = _get_model().transcribe(audio, fp16=True, language=language)
+    return result["text"].strip()

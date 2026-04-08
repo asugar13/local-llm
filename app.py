@@ -585,6 +585,7 @@ with st.sidebar:
 
     st.divider()
     st.caption("Voice input")
+    st.selectbox("Language", options=["en", "es"], format_func=lambda k: {"en": "English", "es": "Spanish"}[k], key="stt_language")
     if not st.session_state.get("is_recording", False):
         if st.button("🎤 Start recording", use_container_width=True, disabled=st.session_state.is_generating):
             stt.start_recording()
@@ -596,7 +597,7 @@ with st.sidebar:
             audio = stt.stop_recording()
             st.session_state.is_recording = False
             with st.spinner("Transcribing..."):
-                transcript = stt.transcribe(audio)
+                transcript = stt.transcribe(audio, language=st.session_state.get("stt_language", "en"))
             if transcript:
                 st.session_state.pending_voice_input = transcript
             else:
@@ -858,9 +859,7 @@ if st.session_state.pop("_clear_input", False):
 
 # Prepopulate from voice — must happen before the widget renders
 if "pending_voice_input" in st.session_state:
-    transcript = st.session_state.pop("pending_voice_input")
-    current = st.session_state.get("msg_input", "")
-    st.session_state.msg_input = (current + "\n" + transcript).lstrip("\n")
+    st.session_state.msg_input = st.session_state.pop("pending_voice_input")
 
 with st.form("chat_form", enter_to_submit=True):
     col_input, col_send = st.columns([11, 1])
