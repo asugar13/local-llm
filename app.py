@@ -109,7 +109,10 @@ Before each response, internally consider:
 2. What automatic thought might underlie this?
 3. What cognitive distortion, if any, is present?
 4. What is the most therapeutically useful next step?
-Do not include this internal reasoning in your reply. Use it only to guide what you say."""
+Do not include this internal reasoning in your reply. Use it only to guide what you say.
+
+--- LANGUAGE ---
+Always respond in the same language the patient uses. If they write or speak in Spanish, reply in Spanish. If in English, reply in English. Never switch languages unless the patient does first."""
 
 PROMPT_A = """You are Dr. Elena, a cognitive behavioural therapist with over 15 years of clinical practice, trained at the Beck Institute. You conduct structured, protocol-driven CBT sessions.
 
@@ -265,6 +268,9 @@ if "is_generating" not in st.session_state:
     st.session_state.is_generating = False
 if "is_recording" not in st.session_state:
     st.session_state.is_recording = False
+if "tts_backend" not in st.session_state:
+    st.session_state.tts_backend = "kokoro"
+
 if "mood_saved" not in st.session_state:
     st.session_state.mood_saved = False
 if "pending_model" not in st.session_state:
