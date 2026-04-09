@@ -9,9 +9,7 @@ _model = None  # lazy-loaded on first transcription
 def _get_model():
     global _model
     if _model is None:
-        import torch
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-        _model = whisper.load_model("large-v3", device=device)
+        _model = whisper.load_model("large-v3", device="cpu")
     return _model
 
 # Module-level stream state (persists across Streamlit reruns in the same process)
@@ -50,5 +48,7 @@ def transcribe(audio: np.ndarray, language: str = "en") -> str:
     """Transcribe a float32 numpy array directly — no ffmpeg required."""
     if len(audio) == 0:
         return ""
-    result = _get_model().transcribe(audio, fp16=True, language=language)
+    if np.abs(audio).mean() < 0.001:  # silence / no meaningful audio
+        return ""
+    result = _get_model().transcribe(audio, fp16=False, language=language)
     return result["text"].strip()

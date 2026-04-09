@@ -78,12 +78,12 @@ Cognitive distortions you watch for:
 
 --- SAFETY PROTOCOL ---
 If at any point the patient expresses thoughts of suicide, self-harm, or harming others, you must immediately:
-1. Respond with warmth and without panic: acknowledge their pain directly.
+1. Respond with warmth and without panic: acknowledge their pain directly — in the patient's language.
 2. State clearly that you are not equipped to handle a crisis and that they need real human support right now.
-3. Provide the following resources:
-   - International Association for Suicide Prevention: https://www.iasp.info
-   - Crisis Text Line (US): text HOME to 741741
-   - Samaritans (UK): 116 123
+3. Provide crisis resources that match the language the patient is using:
+   - If the patient is writing in English: Crisis Text Line (US): text HOME to 741741 | Samaritans (UK): 116 123 | International: https://www.iasp.info
+   - If the patient is writing in Spanish: Telefono de la Esperanza (Spain): 717 003 717 | SAPTEL (Mexico): 55 5259-8121 | Internacional: https://www.iasp.info
+   - For any other language: provide the IASP directory at https://www.iasp.info and encourage them to find their local line.
 4. Do not continue the CBT session. Gently but firmly redirect to professional help.
 5. Do not ask probing questions about the method or plan.
 
@@ -112,7 +112,7 @@ Before each response, internally consider:
 Do not include this internal reasoning in your reply. Use it only to guide what you say.
 
 --- LANGUAGE ---
-Always respond in the same language the patient uses. If they write or speak in Spanish, reply in Spanish. If in English, reply in English. Never switch languages unless the patient does first."""
+Always respond in the same language the patient uses. This rule applies to every part of your response without exception - including greetings, therapeutic content, cognitive distortion labels, crisis responses, helpline numbers, and session summaries. If they write or speak in Spanish, your entire reply must be in Spanish. If in English, reply entirely in English. Never switch languages unless the patient does first. When in doubt, mirror the patient's last message."""
 
 PROMPT_A = """You are Dr. Elena, a cognitive behavioural therapist with over 15 years of clinical practice, trained at the Beck Institute. You conduct structured, protocol-driven CBT sessions.
 
@@ -581,6 +581,18 @@ with st.sidebar:
     st.divider()
     st.caption("Voice input")
     st.selectbox("Language", options=["en", "es"], format_func=lambda k: {"en": "English", "es": "Spanish"}[k], key="stt_language")
+
+    # If audio was just captured, transcribe it now (after rerun so button already switched)
+    if "pending_audio" in st.session_state:
+        audio = st.session_state.pop("pending_audio")
+        with st.spinner("Transcribing..."):
+            transcript = stt.transcribe(audio, language=st.session_state.get("stt_language", "en"))
+        if transcript:
+            st.session_state.pending_voice_input = transcript
+            st.rerun()
+        else:
+            st.warning("No speech detected.")
+
     if not st.session_state.get("is_recording", False):
         if st.button("🎤 Start recording", use_container_width=True, disabled=st.session_state.is_generating):
             stt.start_recording()
@@ -591,12 +603,7 @@ with st.sidebar:
         if st.button("⏹ Stop and transcribe", use_container_width=True, type="primary"):
             audio = stt.stop_recording()
             st.session_state.is_recording = False
-            with st.spinner("Transcribing..."):
-                transcript = stt.transcribe(audio, language=st.session_state.get("stt_language", "en"))
-            if transcript:
-                st.session_state.pending_voice_input = transcript
-            else:
-                st.warning("No speech detected.")
+            st.session_state.pending_audio = audio  # transcribe on next render
             st.rerun()
 
     st.divider()
@@ -833,17 +840,30 @@ def start_generation(prompt: str, mdl: str, temp: float) -> None:
 
 
 
-# File uploader — shown above input
-uploaded_file = st.file_uploader(
-    "📎 Attach a file - PDF, DOCX, TXT, MD, CSV",
-    type=["pdf", "docx", "txt", "md", "csv"],
-    key=f"file_uploader_{st.session_state.uploader_key}",
-    label_visibility="collapsed",
-)
-if uploaded_file:
-    file_bytes = uploaded_file.read()
-    st.session_state.doc_text = extract_text(file_bytes, uploaded_file.name)[:60000]
-    st.session_state.doc_name = uploaded_file.name
+# File attachment — uploader shown only when no file is held; indicator shown when one is.
+# Driven entirely by session state so it survives any rerun from sidebar toggles.
+if st.session_state.doc_name:
+    col_att, col_clr = st.columns([8, 1])
+    with col_att:
+        st.caption(f"📎 {st.session_state.doc_name}")
+    with col_clr:
+        if st.button("✕", key="clear_attachment", help="Remove attachment"):
+            st.session_state.doc_text = None
+            st.session_state.doc_name = None
+            st.session_state.uploader_key += 1
+            st.rerun()
+else:
+    uploaded_file = st.file_uploader(
+        "📎 Attach a file - PDF, DOCX, TXT, MD, CSV",
+        type=["pdf", "docx", "txt", "md", "csv"],
+        key=f"file_uploader_{st.session_state.uploader_key}",
+        label_visibility="collapsed",
+    )
+    if uploaded_file:
+        file_bytes = uploaded_file.read()
+        st.session_state.doc_text = extract_text(file_bytes, uploaded_file.name)[:60000]
+        st.session_state.doc_name = uploaded_file.name
+        st.rerun()
 
 # Clear input — must happen before the widget renders
 if st.session_state.pop("_clear_input", False):
@@ -853,7 +873,7 @@ if st.session_state.pop("_clear_input", False):
 if "pending_voice_input" in st.session_state:
     st.session_state.msg_input = st.session_state.pop("pending_voice_input")
 
-with st.form("chat_form", enter_to_submit=True):
+with st.form("chat_form"):
     col_input, col_send = st.columns([11, 1])
     with col_input:
         user_input = st.text_input(
