@@ -131,6 +131,7 @@ def list_conversations() -> list:
 def load_conversation(conversation_id: int) -> dict | None:
     conn = _connect()
     try:
+        
         conv = conn.execute(
             "SELECT id, title, model, system_prompt, created_at FROM conversations WHERE id = ?",
             (conversation_id,),
